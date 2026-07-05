@@ -11,6 +11,13 @@ import {
   useLivePosition,
 } from '../camera.js';
 import CameraStage from '../components/CameraStage.jsx';
+import {
+  IconArrowLeft,
+  IconCheck,
+  IconFaceScan,
+  IconRefresh,
+  IconX,
+} from '../components/Icons.jsx';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -128,7 +135,9 @@ export default function VerifyPage() {
   return (
     <div className="page">
       <header className="topbar">
-        <Link to="/" className="btn ghost small">← Voltar</Link>
+        <Link to="/" className="btn ghost small">
+          <IconArrowLeft size={16} /> Voltar
+        </Link>
         <h1>Validar identidade</h1>
         <span />
       </header>
@@ -213,6 +222,7 @@ export default function VerifyPage() {
               onClick={start}
               disabled={!ready || !positioned}
             >
+              <IconFaceScan size={19} />
               {positioned ? 'Iniciar validacao' : 'Posicione o rosto no oval para comecar'}
             </button>
           </div>
@@ -220,20 +230,30 @@ export default function VerifyPage() {
 
         {step === 'done' && result && (
           <div className={`card ${result.success ? 'result-ok' : 'result-fail'}`}>
-            <h2>{result.success ? '✅ Identidade validada' : '❌ Validacao recusada'}</h2>
+            <div className="card-title">
+              <span className={`icon-badge ${result.success ? 'ok' : 'fail'}`}>
+                {result.success ? <IconCheck size={22} /> : <IconX size={22} />}
+              </span>
+              <h2>{result.success ? 'Identidade validada' : 'Validacao recusada'}</h2>
+            </div>
             <ul className="checklist">
               <li>
-                {result.match ? '✔' : '✘'} Reconhecimento facial:{' '}
-                {(result.similarity * 100).toFixed(1)}% de similaridade (minimo{' '}
-                {(result.threshold * 100).toFixed(0)}%)
+                <span className={`check-icon ${result.match ? 'ok' : 'fail'}`}>
+                  {result.match ? <IconCheck size={17} /> : <IconX size={17} />}
+                </span>
+                Reconhecimento facial: {(result.similarity * 100).toFixed(1)}% de similaridade
+                (minimo {(result.threshold * 100).toFixed(0)}%)
               </li>
               <li>
-                {result.liveness ? '✔' : '✘'} Prova de vida: {result.livenessDetail}
+                <span className={`check-icon ${result.liveness ? 'ok' : 'fail'}`}>
+                  {result.liveness ? <IconCheck size={17} /> : <IconX size={17} />}
+                </span>
+                Prova de vida: {result.livenessDetail}
               </li>
             </ul>
             <div className="actions">
               <button type="button" className="btn primary" onClick={start}>
-                Validar novamente
+                <IconRefresh size={18} /> Validar novamente
               </button>
               <Link to="/" className="btn ghost">Voltar ao inicio</Link>
             </div>

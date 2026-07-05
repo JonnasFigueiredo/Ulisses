@@ -37,7 +37,7 @@ export default function LoginPage() {
           <span className="brand-mark">U</span>
           <div>
             <h1>Ulisses</h1>
-            <p className="muted">Biometria facial por video</p>
+            <p className="auth-headline">Sua identidade, verificada pelo seu rosto.</p>
           </div>
         </div>
 

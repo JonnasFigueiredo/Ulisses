@@ -11,6 +11,7 @@ import {
   useLivePosition,
 } from '../camera.js';
 import CameraStage from '../components/CameraStage.jsx';
+import { IconArrowLeft, IconCamera, IconCheck, IconFaceScan } from '../components/Icons.jsx';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -127,7 +128,9 @@ export default function EnrollPage() {
   return (
     <div className="page">
       <header className="topbar">
-        <Link to="/" className="btn ghost small">← Voltar</Link>
+        <Link to="/" className="btn ghost small">
+          <IconArrowLeft size={16} /> Voltar
+        </Link>
         <h1>Cadastro facial</h1>
         <span />
       </header>
@@ -202,6 +205,7 @@ export default function EnrollPage() {
               onClick={start}
               disabled={!ready || !positioned}
             >
+              <IconCamera size={19} />
               {positioned ? 'Iniciar captura' : 'Posicione o rosto no oval para comecar'}
             </button>
           </div>
@@ -209,14 +213,21 @@ export default function EnrollPage() {
 
         {step === 'done' && result && (
           <div className="card result-ok">
-            <h2>✅ Biometria cadastrada!</h2>
-            <p className="muted">
-              {result.framesUsed} de {result.framesReceived} frames aproveitados · consistencia{' '}
-              {(result.consistency * 100).toFixed(1)}%
-            </p>
+            <div className="card-title">
+              <span className="icon-badge ok">
+                <IconCheck size={22} />
+              </span>
+              <div>
+                <h2>Biometria cadastrada!</h2>
+                <p className="muted">
+                  {result.framesUsed} de {result.framesReceived} frames aproveitados · consistencia{' '}
+                  {(result.consistency * 100).toFixed(1)}%
+                </p>
+              </div>
+            </div>
             <div className="actions">
               <button type="button" className="btn primary" onClick={() => navigate('/verify')}>
-                Testar validacao agora
+                <IconFaceScan size={18} /> Testar validacao agora
               </button>
               <Link to="/" className="btn ghost">Voltar ao inicio</Link>
             </div>
