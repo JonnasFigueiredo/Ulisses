@@ -1,0 +1,11 @@
+{
+  "appId": "com.ulisses.app",
+  "appName": "Ulisses",
+  "webDir": "dist",
+  "server": {
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

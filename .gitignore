@@ -17,3 +17,6 @@ Thumbs.db
 
 # Claude
 .claude/
+
+# APK gerado (artefato de build)
+*.apk

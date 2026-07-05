@@ -46,11 +46,30 @@ npm run dev
 
 Sobe em `https://localhost:5173` (HTTPS com certificado autoassinado — aceite o aviso do navegador). As chamadas `/api` são proxeadas para o backend automaticamente.
 
-### Usando no celular
+### Usando no celular (navegador)
 
-1. Conecte o celular na mesma rede Wi-Fi do computador.
-2. O Vite exibe no terminal o endereço de rede (ex.: `https://192.168.0.10:5173`) — abra-o no navegador do celular.
-3. Aceite o certificado autoassinado. O HTTPS é obrigatório: navegadores só liberam a câmera em contexto seguro.
+1. Rode o frontend com `npm run dev:mobile` (HTTPS com certificado autoassinado).
+2. Conecte o celular na mesma rede Wi-Fi do computador.
+3. O Vite exibe no terminal o endereço de rede (ex.: `https://192.168.0.10:5173`) — abra-o no navegador do celular e aceite o certificado. O HTTPS é obrigatório: navegadores só liberam a câmera em contexto seguro.
+
+### Aplicativo Android (APK)
+
+O projeto inclui um app nativo via **Capacitor** em `frontend/android/`. Para gerar o APK:
+
+```bash
+cd frontend
+npm run build && npx cap sync android
+cd android && gradlew.bat assembleDebug
+```
+
+O APK sai em `frontend/android/app/build/outputs/apk/debug/app-debug.apk`. Instale no celular (transferindo o arquivo ou via `adb install`).
+
+**Para usar o app:**
+1. Deixe o backend rodando no computador (`mvnw spring-boot:run`).
+2. Descubra o IP do computador na rede (`ipconfig` → IPv4) e libere a porta 8080 no Firewall do Windows se necessário.
+3. No app, com o celular na mesma rede Wi-Fi, preencha o campo **Servidor Ulisses** na tela de login, ex.: `http://192.168.0.10:8080`.
+
+No app a câmera funciona sem HTTPS (o WebView do Capacitor roda em contexto seguro) e a permissão de câmera é pedida no primeiro uso.
 
 ## Calibração e padrões globais
 

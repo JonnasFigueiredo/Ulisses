@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ulisses</string>
+    <string name="title_activity_main">Ulisses</string>
+    <string name="package_name">com.ulisses.app</string>
+    <string name="custom_url_scheme">com.ulisses.app</string>
+</resources>
