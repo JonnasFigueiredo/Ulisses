@@ -1,7 +1,13 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
-import { captureFrames, useCamera } from '../camera.js';
+import {
+  average,
+  collectPosedFrames,
+  STRAIGHT_RANGE,
+  TURN_DEVIATION,
+  useCamera,
+} from '../camera.js';
 import CameraStage from '../components/CameraStage.jsx';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -11,7 +17,7 @@ export default function VerifyPage() {
   const [step, setStep] = useState('idle'); // idle | countdown | straight | turn | upload | done
   const [countdown, setCountdown] = useState(3);
   const [direction, setDirection] = useState(null); // LEFT | RIGHT (lado do proprio usuario)
-  const [progress, setProgress] = useState(0);
+  const [live, setLive] = useState({ ok: false, message: '', progress: 0 });
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const runningRef = useRef(false);
@@ -25,6 +31,7 @@ export default function VerifyPage() {
       // O servidor sorteia o desafio de prova de vida (uso unico, expira em 2 min)
       const challenge = await api('/api/face/challenge', { method: 'POST' });
       setDirection(challenge.direction);
+      const directionLabel = challenge.direction === 'LEFT' ? 'ESQUERDA' : 'DIREITA';
 
       setStep('countdown');
       for (let c = 3; c >= 1; c--) {
@@ -32,40 +39,48 @@ export default function VerifyPage() {
         await sleep(800);
       }
 
-      const allFrames = [];
-      const allPhases = [];
-
+      // Fase frontal: identidade + referencia de pose
       setStep('straight');
-      setProgress(0);
-      await sleep(500);
-      const straightFrames = await captureFrames(videoRef.current, {
+      setLive({ ok: false, message: 'Prepare-se...', progress: 0 });
+      const straight = await collectPosedFrames(videoRef.current, {
         count: 6,
-        intervalMs: 300,
-        onProgress: setProgress,
+        isPoseOk: (r) => r >= STRAIGHT_RANGE.min && r <= STRAIGHT_RANGE.max,
+        onUpdate: setLive,
+        timeoutMs: 30000,
+        messages: {
+          noFace: 'Rosto nao detectado — centralize o rosto no oval',
+          adjust: 'Olhe direto para a camera, sem inclinar a cabeca',
+          holding: 'Perfeito, segure assim!',
+          timeout: 'Nao conseguimos detectar o rosto a tempo. Verifique a iluminacao e tente novamente.',
+        },
       });
-      straightFrames.forEach((blob, index) => {
-        allFrames.push(new File([blob], `straight-${index}.jpg`, { type: 'image/jpeg' }));
-        allPhases.push('STRAIGHT');
-      });
+      const baseline = average(straight.ratios);
 
+      // Desafio: o giro so conta quando detectado na direcao sorteada
       setStep('turn');
-      setProgress(0);
-      await sleep(900); // tempo para o usuario iniciar o giro
-      const turnFrames = await captureFrames(videoRef.current, {
+      setLive({ ok: false, message: 'Prepare-se...', progress: 0 });
+      const turn = await collectPosedFrames(videoRef.current, {
         count: 8,
-        intervalMs: 280,
-        onProgress: setProgress,
-      });
-      turnFrames.forEach((blob, index) => {
-        allFrames.push(new File([blob], `turn-${index}.jpg`, { type: 'image/jpeg' }));
-        allPhases.push('TURN');
+        isPoseOk: (r) =>
+          challenge.direction === 'LEFT' ? r - baseline >= TURN_DEVIATION : baseline - r >= TURN_DEVIATION,
+        onUpdate: setLive,
+        timeoutMs: 30000,
+        messages: {
+          noFace: 'Rosto nao detectado — mantenha o rosto visivel durante o giro',
+          adjust: `Vire mais o rosto para a ${directionLabel} e segure`,
+          holding: 'Isso! Mantenha o giro',
+          timeout: 'O movimento de cabeca nao foi confirmado a tempo. Tente novamente.',
+        },
       });
 
       setStep('upload');
       const form = new FormData();
       form.append('challengeId', challenge.challengeId);
-      allFrames.forEach((file) => form.append('frames', file));
-      allPhases.forEach((phase) => form.append('phases', phase));
+      const phases = [...straight.frames.map(() => 'STRAIGHT'), ...turn.frames.map(() => 'TURN')];
+      [...straight.frames, ...turn.frames].forEach((blob, index) => {
+        form.append('frames', new File([blob], `frame-${index}.jpg`, { type: 'image/jpeg' }));
+      });
+      phases.forEach((phase) => form.append('phases', phase));
       const data = await api('/api/face/verify', { method: 'POST', form });
       setResult(data);
       setStep('done');
@@ -93,7 +108,7 @@ export default function VerifyPage() {
           videoRef={videoRef}
           ready={ready}
           error={cameraError}
-          highlight={step === 'straight' || step === 'turn'}
+          highlight={(step === 'straight' || step === 'turn') && live.ok}
           overlay={
             <>
               {step === 'countdown' && (
@@ -104,9 +119,11 @@ export default function VerifyPage() {
               {step === 'straight' && (
                 <div className="instruction-bar">
                   <strong>Olhe direto para a camera</strong>
-                  <span>Rosto centralizado no oval</span>
+                  <span className={live.ok ? 'status-msg ok' : 'status-msg warn'}>
+                    {live.message}
+                  </span>
                   <div className="progress">
-                    <div className="progress-fill" style={{ width: `${progress * 100}%` }} />
+                    <div className="progress-fill" style={{ width: `${live.progress * 100}%` }} />
                   </div>
                 </div>
               )}
@@ -115,10 +132,13 @@ export default function VerifyPage() {
                   <strong>
                     {directionArrow} Vire o rosto para a {directionLabel} {directionArrow}
                   </strong>
-                  <span>Prova de vida: mantenha o giro ate a barra completar</span>
+                  <span className={live.ok ? 'status-msg ok' : 'status-msg warn'}>
+                    {live.message}
+                  </span>
                   <div className="progress">
-                    <div className="progress-fill" style={{ width: `${progress * 100}%` }} />
+                    <div className="progress-fill" style={{ width: `${live.progress * 100}%` }} />
                   </div>
+                  <span className="muted">Prova de vida: mantenha o giro ate a barra completar</span>
                 </div>
               )}
               {step === 'upload' && (
@@ -138,7 +158,8 @@ export default function VerifyPage() {
             <h2>Validacao com prova de vida</h2>
             <p className="muted">
               Alem de comparar seu rosto com a biometria cadastrada, o sistema sorteia um movimento de
-              cabeca que deve ser executado ao vivo — fotos e videos gravados nao passam.
+              cabeca que deve ser executado ao vivo — fotos e videos gravados nao passam. O movimento e
+              verificado em tempo real: a barra so avanca quando voce gira o rosto de verdade.
             </p>
             <button type="button" className="btn primary big" onClick={start} disabled={!ready}>
               Iniciar validacao

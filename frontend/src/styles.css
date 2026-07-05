@@ -348,6 +348,18 @@ body {
   font-size: 1.15rem;
 }
 
+.status-msg {
+  font-weight: 600;
+}
+
+.status-msg.ok {
+  color: var(--ok) !important;
+}
+
+.status-msg.warn {
+  color: var(--warn) !important;
+}
+
 .progress {
   height: 6px;
   border-radius: 3px;

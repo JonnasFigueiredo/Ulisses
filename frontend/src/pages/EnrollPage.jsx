@@ -1,28 +1,51 @@
 import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
-import { captureFrames, useCamera } from '../camera.js';
+import {
+  average,
+  collectPosedFrames,
+  STRAIGHT_RANGE,
+  TURN_DEVIATION,
+  useCamera,
+} from '../camera.js';
 import CameraStage from '../components/CameraStage.jsx';
 
-// Poses capturadas no cadastro: frente + leves giros para robustez a variacao de pose.
-const PHASES = [
-  { key: 'STRAIGHT', label: 'Olhe direto para a camera', hint: 'Mantenha o rosto no oval', frames: 8, intervalMs: 280 },
-  { key: 'LEFT', label: 'Vire LEVEMENTE o rosto para a esquerda', hint: 'Giro suave, sem pressa', frames: 5, intervalMs: 300 },
-  { key: 'RIGHT', label: 'Agora LEVEMENTE para a direita', hint: 'Giro suave, sem pressa', frames: 5, intervalMs: 300 },
-];
-
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const PHASE_TITLES = {
+  STRAIGHT: 'Olhe direto para a camera',
+  LEFT: 'Vire o rosto para a ESQUERDA',
+  RIGHT: 'Vire o rosto para a DIREITA',
+};
 
 export default function EnrollPage() {
   const navigate = useNavigate();
   const { videoRef, ready, error: cameraError } = useCamera();
   const [step, setStep] = useState('idle'); // idle | countdown | capture | upload | done
   const [countdown, setCountdown] = useState(3);
-  const [phaseIndex, setPhaseIndex] = useState(0);
-  const [progress, setProgress] = useState(0);
+  const [phaseKey, setPhaseKey] = useState('STRAIGHT');
+  const [live, setLive] = useState({ ok: false, message: '', progress: 0 });
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const runningRef = useRef(false);
+
+  async function runPhase(key, count, isPoseOk, adjustMessage) {
+    setPhaseKey(key);
+    setLive({ ok: false, message: 'Prepare-se...', progress: 0 });
+    return collectPosedFrames(videoRef.current, {
+      count,
+      isPoseOk,
+      onUpdate: setLive,
+      timeoutMs: 30000,
+      messages: {
+        noFace: 'Rosto nao detectado — centralize o rosto no oval',
+        adjust: adjustMessage,
+        holding: 'Perfeito, segure assim!',
+        timeout:
+          'Nao conseguimos confirmar a pose a tempo. Verifique a iluminacao, siga as instrucoes e tente novamente.',
+      },
+    });
+  }
 
   async function start() {
     if (runningRef.current) return;
@@ -37,27 +60,43 @@ export default function EnrollPage() {
       }
 
       setStep('capture');
-      const allFrames = [];
-      const allPhases = [];
-      for (let i = 0; i < PHASES.length; i++) {
-        setPhaseIndex(i);
-        setProgress(0);
-        await sleep(700); // tempo para o usuario assumir a pose
-        const frames = await captureFrames(videoRef.current, {
-          count: PHASES[i].frames,
-          intervalMs: PHASES[i].intervalMs,
-          onProgress: setProgress,
-        });
-        frames.forEach((blob, index) => {
-          allFrames.push(new File([blob], `${PHASES[i].key.toLowerCase()}-${index}.jpg`, { type: 'image/jpeg' }));
-          allPhases.push(PHASES[i].key);
-        });
-      }
+
+      // Etapa 1 — frontal: define a referencia de pose do proprio usuario
+      const straight = await runPhase(
+        'STRAIGHT',
+        8,
+        (r) => r >= STRAIGHT_RANGE.min && r <= STRAIGHT_RANGE.max,
+        'Olhe direto para a camera, sem inclinar a cabeca',
+      );
+      const baseline = average(straight.ratios);
+
+      // Etapa 2 — giro real para a esquerda (so avanca quando o giro e detectado)
+      const left = await runPhase(
+        'LEFT',
+        5,
+        (r) => r - baseline >= TURN_DEVIATION,
+        'Vire mais o rosto para a ESQUERDA e segure',
+      );
+
+      // Etapa 3 — giro real para a direita
+      const right = await runPhase(
+        'RIGHT',
+        5,
+        (r) => baseline - r >= TURN_DEVIATION,
+        'Vire mais o rosto para a DIREITA e segure',
+      );
 
       setStep('upload');
       const form = new FormData();
-      allFrames.forEach((file) => form.append('frames', file));
-      allPhases.forEach((phase) => form.append('phases', phase));
+      const phases = [
+        ...straight.frames.map(() => 'STRAIGHT'),
+        ...left.frames.map(() => 'LEFT'),
+        ...right.frames.map(() => 'RIGHT'),
+      ];
+      [...straight.frames, ...left.frames, ...right.frames].forEach((blob, index) => {
+        form.append('frames', new File([blob], `frame-${index}.jpg`, { type: 'image/jpeg' }));
+      });
+      phases.forEach((phase) => form.append('phases', phase));
       const data = await api('/api/face/enroll', { method: 'POST', form });
       setResult(data);
       setStep('done');
@@ -68,8 +107,6 @@ export default function EnrollPage() {
       runningRef.current = false;
     }
   }
-
-  const phase = PHASES[phaseIndex];
 
   return (
     <div className="page">
@@ -84,7 +121,7 @@ export default function EnrollPage() {
           videoRef={videoRef}
           ready={ready}
           error={cameraError}
-          highlight={step === 'capture'}
+          highlight={step === 'capture' && live.ok}
           overlay={
             <>
               {step === 'countdown' && (
@@ -93,15 +130,19 @@ export default function EnrollPage() {
                 </div>
               )}
               {step === 'capture' && (
-                <div className="instruction-bar">
-                  <strong>{phase.label}</strong>
-                  <span>{phase.hint}</span>
-                  <div className="progress">
-                    <div className="progress-fill" style={{ width: `${progress * 100}%` }} />
-                  </div>
-                  <span className="muted">
-                    Etapa {phaseIndex + 1} de {PHASES.length}
+                <div className={`instruction-bar${phaseKey !== 'STRAIGHT' ? ' challenge' : ''}`}>
+                  <strong>
+                    {phaseKey === 'LEFT' && '← '}
+                    {PHASE_TITLES[phaseKey]}
+                    {phaseKey === 'RIGHT' && ' →'}
+                  </strong>
+                  <span className={live.ok ? 'status-msg ok' : 'status-msg warn'}>
+                    {live.message}
                   </span>
+                  <div className="progress">
+                    <div className="progress-fill" style={{ width: `${live.progress * 100}%` }} />
+                  </div>
+                  <span className="muted">A barra so avanca quando a pose esta correta</span>
                 </div>
               )}
               {step === 'upload' && (
@@ -121,8 +162,12 @@ export default function EnrollPage() {
             <h2>Como funciona</h2>
             <ol className="steps">
               <li>Posicione o rosto dentro do oval, em um lugar bem iluminado.</li>
-              <li>Siga as instrucoes na tela: olhar para frente e girar levemente a cabeca.</li>
-              <li>A captura leva cerca de 10 segundos e roda 100% no seu servidor local.</li>
+              <li>
+                Siga as instrucoes na tela: olhar para frente, virar para a esquerda e para a
+                direita. <strong>Cada pose e verificada em tempo real</strong> — a barra de
+                progresso so avanca quando voce executa o movimento.
+              </li>
+              <li>Tudo roda 100% no seu servidor local.</li>
             </ol>
             <button type="button" className="btn primary big" onClick={start} disabled={!ready}>
               Iniciar captura

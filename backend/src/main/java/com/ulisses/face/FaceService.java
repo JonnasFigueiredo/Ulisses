@@ -37,6 +37,10 @@ public class FaceService {
 	/** Frames validos minimos para aceitar um cadastro. */
 	private static final int MIN_ENROLL_FRAMES = 6;
 	private static final int MIN_ENROLL_STRAIGHT_FRAMES = 3;
+	/** Frames validos minimos em cada pose de giro do cadastro. */
+	private static final int MIN_ENROLL_TURN_FRAMES = 3;
+	/** Desvio minimo do nariz vs pose frontal para aceitar que o rosto foi realmente virado. */
+	private static final double MIN_ENROLL_TURN_DEVIATION = 0.10;
 	/** Coerencia minima entre os frames do cadastro (mesma pessoa durante toda a captura). */
 	private static final double MIN_ENROLL_CONSISTENCY = 0.45;
 	/** Frames frontais validos minimos para uma validacao. */
@@ -94,6 +98,8 @@ public class FaceService {
 					"Nao foi possivel capturar o rosto com qualidade suficiente. Procure um lugar bem iluminado, "
 							+ "centralize o rosto no oval e tente novamente.");
 		}
+
+		validateEnrollmentPoses(byPhase);
 
 		double consistency = meanPairwiseSimilarity(processed);
 		if (consistency < MIN_ENROLL_CONSISTENCY) {
@@ -191,6 +197,54 @@ public class FaceService {
 				attemptRepository.findTop10ByUserIdOrderByCreatedAtDesc(user.getId()).stream()
 						.map(AttemptDto::from)
 						.toList());
+	}
+
+	/**
+	 * Garante que o usuario realmente executou as poses do cadastro: rosto frontal na etapa
+	 * STRAIGHT e giros reais (deslocamento do nariz vs a pose frontal) nas etapas LEFT e RIGHT.
+	 */
+	private void validateEnrollmentPoses(Map<String, List<ProcessedFrame>> byPhase) {
+		List<ProcessedFrame> straight = byPhase.getOrDefault("STRAIGHT", List.of());
+		List<ProcessedFrame> left = byPhase.getOrDefault("LEFT", List.of());
+		List<ProcessedFrame> right = byPhase.getOrDefault("RIGHT", List.of());
+		if (left.size() < MIN_ENROLL_TURN_FRAMES || right.size() < MIN_ENROLL_TURN_FRAMES) {
+			throw ApiException.badRequest(
+					"O cadastro exige as poses com o rosto virado para os dois lados. Siga as instrucoes na tela e "
+							+ "mantenha o giro ate a barra de progresso completar.");
+		}
+		double baseline = medianNoseRatio(straight);
+		if (baseline < 0.30 || baseline > 0.70) {
+			throw ApiException.badRequest(
+					"Na primeira etapa, olhe diretamente para a camera com o rosto centralizado e refaca o cadastro.");
+		}
+		// Girar para a propria esquerda desloca o nariz para a direita da imagem (ratio aumenta)
+		if (medianNoseRatio(left) - baseline < MIN_ENROLL_TURN_DEVIATION) {
+			throw ApiException.badRequest(
+					"Nao confirmamos o giro do rosto para a ESQUERDA. Refaca o cadastro virando o rosto quando "
+							+ "solicitado e segurando a pose.");
+		}
+		if (baseline - medianNoseRatio(right) < MIN_ENROLL_TURN_DEVIATION) {
+			throw ApiException.badRequest(
+					"Nao confirmamos o giro do rosto para a DIREITA. Refaca o cadastro virando o rosto quando "
+							+ "solicitado e segurando a pose.");
+		}
+	}
+
+	private static double medianNoseRatio(List<ProcessedFrame> frames) {
+		double[] ratios = frames.stream().mapToDouble(ProcessedFrame::noseRatio).sorted().toArray();
+		int n = ratios.length;
+		return n % 2 == 1 ? ratios[n / 2] : (ratios[n / 2 - 1] + ratios[n / 2]) / 2.0;
+	}
+
+	/** Checagem leve de pose para guiar a captura em tempo real (sem extrair embedding). */
+	public FaceDtos.PoseResponse pose(MultipartFile frame) {
+		BufferedImage image = decode(frame);
+		if (image == null) {
+			return new FaceDtos.PoseResponse(false, 0);
+		}
+		return engine.detectMainFace(image)
+				.map(d -> new FaceDtos.PoseResponse(true, round(d.noseRatio())))
+				.orElse(new FaceDtos.PoseResponse(false, 0));
 	}
 
 	private record LivenessCheck(boolean passed, String detail) {}

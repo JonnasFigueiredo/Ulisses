@@ -16,6 +16,9 @@ public final class FaceDtos {
 
 	public record ChallengeResponse(String challengeId, String direction, long expiresInSeconds) {}
 
+	/** Retorno da checagem de pose em tempo real usada para guiar a captura. */
+	public record PoseResponse(boolean faceDetected, double noseRatio) {}
+
 	public record VerifyResult(
 			boolean success,
 			boolean match,

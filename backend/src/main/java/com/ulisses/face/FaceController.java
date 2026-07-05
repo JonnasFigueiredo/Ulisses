@@ -44,6 +44,11 @@ public class FaceController {
 		return faceService.enroll(currentUser(authentication), frames, phases);
 	}
 
+	@PostMapping("/pose")
+	public FaceDtos.PoseResponse pose(@RequestParam("frame") MultipartFile frame) {
+		return faceService.pose(frame);
+	}
+
 	@PostMapping("/challenge")
 	public ChallengeResponse challenge(Authentication authentication) {
 		Challenge challenge = challengeService.create(currentUser(authentication).getId());
