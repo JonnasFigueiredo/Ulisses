@@ -253,15 +253,18 @@ public class FaceService {
 	public FaceDtos.PoseResponse pose(MultipartFile frame) {
 		BufferedImage image = decode(frame);
 		if (image == null) {
-			return new FaceDtos.PoseResponse(false, 0, 0, false);
+			return new FaceDtos.PoseResponse(false, 0, 0, false, 0, 0, 0);
 		}
 		return engine.detectMainFace(image)
 				.map(d -> new FaceDtos.PoseResponse(
 						true,
 						round(d.noseRatio()),
 						round(d.interocular()),
-						d.interocular() >= properties.minEnrollInterocular()))
-				.orElse(new FaceDtos.PoseResponse(false, 0, 0, false));
+						d.interocular() >= properties.minEnrollInterocular(),
+						round((d.x1() + d.x2()) / 2.0 / image.getWidth()),
+						round((d.y1() + d.y2()) / 2.0 / image.getHeight()),
+						round(d.height() / (double) image.getHeight())))
+				.orElse(new FaceDtos.PoseResponse(false, 0, 0, false, 0, 0, 0));
 	}
 
 	private record LivenessCheck(boolean passed, String detail) {}

@@ -294,6 +294,42 @@ body {
   border: 2.5px dashed rgba(255, 255, 255, 0.55);
   border-radius: 50%;
   pointer-events: none;
+  /* escurece tudo fora do oval para guiar o enquadramento */
+  box-shadow: 0 0 0 9999px rgba(5, 7, 15, 0.45);
+  transition: border-color 0.25s;
+}
+
+.face-guide--ok {
+  border-style: solid;
+  border-color: var(--ok);
+}
+
+.face-guide--bad {
+  border-color: var(--warn);
+}
+
+.position-chip {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 92%;
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: rgba(5, 7, 15, 0.78);
+  border: 1px solid rgba(242, 179, 68, 0.45);
+  color: var(--warn);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.position-chip.ok {
+  color: var(--ok);
+  border-color: rgba(46, 204, 143, 0.45);
 }
 
 .camera-overlay {

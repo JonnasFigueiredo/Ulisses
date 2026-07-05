@@ -4,9 +4,11 @@ import { api } from '../api.js';
 import {
   average,
   collectPosedFrames,
+  positionIssue,
   STRAIGHT_RANGE,
   TURN_DEVIATION,
   useCamera,
+  useLivePosition,
 } from '../camera.js';
 import CameraStage from '../components/CameraStage.jsx';
 
@@ -21,6 +23,11 @@ export default function VerifyPage() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const runningRef = useRef(false);
+
+  const showIdle = step === 'idle' || step === 'done';
+  const livePose = useLivePosition(videoRef, ready, showIdle);
+  const positionMsg = showIdle && ready ? positionIssue(livePose) : null;
+  const positioned = showIdle && livePose != null && positionMsg == null;
 
   async function start() {
     if (runningRef.current) return;
@@ -44,12 +51,15 @@ export default function VerifyPage() {
       setLive({ ok: false, message: 'Prepare-se...', progress: 0 });
       const straight = await collectPosedFrames(videoRef.current, {
         count: 6,
-        isPoseOk: (p) => p.noseRatio >= STRAIGHT_RANGE.min && p.noseRatio <= STRAIGHT_RANGE.max,
+        isPoseOk: (p) =>
+          positionIssue(p) == null &&
+          p.noseRatio >= STRAIGHT_RANGE.min &&
+          p.noseRatio <= STRAIGHT_RANGE.max,
         onUpdate: setLive,
         timeoutMs: 30000,
         messages: {
           noFace: 'Rosto nao detectado — centralize o rosto no oval',
-          adjust: 'Olhe direto para a camera, sem inclinar a cabeca',
+          adjust: (p) => positionIssue(p) || 'Olhe direto para a camera, sem inclinar a cabeca',
           holding: 'Perfeito, segure assim!',
           timeout: 'Nao conseguimos detectar o rosto a tempo. Verifique a iluminacao e tente novamente.',
         },
@@ -62,14 +72,17 @@ export default function VerifyPage() {
       const turn = await collectPosedFrames(videoRef.current, {
         count: 8,
         isPoseOk: (p) =>
-          challenge.direction === 'LEFT'
+          positionIssue(p, { strict: false }) == null &&
+          (challenge.direction === 'LEFT'
             ? p.noseRatio - baseline >= TURN_DEVIATION
-            : baseline - p.noseRatio >= TURN_DEVIATION,
+            : baseline - p.noseRatio >= TURN_DEVIATION),
         onUpdate: setLive,
         timeoutMs: 30000,
         messages: {
           noFace: 'Rosto nao detectado — mantenha o rosto visivel durante o giro',
-          adjust: `Vire mais o rosto para a ${directionLabel} e segure`,
+          adjust: (p) =>
+            positionIssue(p, { strict: false }) ||
+            `Vire mais o rosto para a ${directionLabel} e segure`,
           holding: 'Isso! Mantenha o giro',
           timeout: 'O movimento de cabeca nao foi confirmado a tempo. Tente novamente.',
         },
@@ -110,7 +123,20 @@ export default function VerifyPage() {
           videoRef={videoRef}
           ready={ready}
           error={cameraError}
-          highlight={(step === 'straight' || step === 'turn') && live.ok}
+          guideState={
+            showIdle && livePose != null
+              ? positioned
+                ? 'ok'
+                : 'bad'
+              : step === 'straight' || step === 'turn'
+                ? live.ok
+                  ? 'ok'
+                  : 'bad'
+                : null
+          }
+          chip={
+            step === 'idle' ? positionMsg || (positioned ? 'Rosto posicionado ✓' : null) : null
+          }
           overlay={
             <>
               {step === 'countdown' && (
@@ -163,8 +189,13 @@ export default function VerifyPage() {
               cabeca que deve ser executado ao vivo — fotos e videos gravados nao passam. O movimento e
               verificado em tempo real: a barra so avanca quando voce gira o rosto de verdade.
             </p>
-            <button type="button" className="btn primary big" onClick={start} disabled={!ready}>
-              Iniciar validacao
+            <button
+              type="button"
+              className="btn primary big"
+              onClick={start}
+              disabled={!ready || !positioned}
+            >
+              {positioned ? 'Iniciar validacao' : 'Posicione o rosto no oval para comecar'}
             </button>
           </div>
         )}

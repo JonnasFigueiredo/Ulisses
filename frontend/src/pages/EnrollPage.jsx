@@ -4,9 +4,11 @@ import { api } from '../api.js';
 import {
   average,
   collectPosedFrames,
+  positionIssue,
   STRAIGHT_RANGE,
   TURN_DEVIATION,
   useCamera,
+  useLivePosition,
 } from '../camera.js';
 import CameraStage from '../components/CameraStage.jsx';
 
@@ -28,6 +30,12 @@ export default function EnrollPage() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const runningRef = useRef(false);
+
+  // Feedback de posicionamento ao vivo antes de iniciar: o oval so fica verde
+  // (e o botao so habilita) com o rosto realmente encaixado e com resolucao adequada
+  const livePose = useLivePosition(videoRef, ready, step === 'idle');
+  const positionMsg = step === 'idle' && ready ? positionIssue(livePose) : null;
+  const positioned = step === 'idle' && livePose != null && positionMsg == null;
 
   async function runPhase(key, count, isPoseOk, adjustMessage) {
     setPhaseKey(key);
@@ -61,33 +69,37 @@ export default function EnrollPage() {
 
       setStep('capture');
 
-      // Etapa 1 — frontal: qualidade de cadastro (resolucao do rosto) + referencia de pose
+      // Etapa 1 — frontal: rosto DENTRO do oval + resolucao de cadastro + olhando para frente
       const straight = await runPhase(
         'STRAIGHT',
         8,
         (p) =>
-          p.enrollQuality && p.noseRatio >= STRAIGHT_RANGE.min && p.noseRatio <= STRAIGHT_RANGE.max,
+          positionIssue(p) == null &&
+          p.enrollQuality &&
+          p.noseRatio >= STRAIGHT_RANGE.min &&
+          p.noseRatio <= STRAIGHT_RANGE.max,
         (p) =>
-          !p.enrollQuality
+          positionIssue(p) ||
+          (!p.enrollQuality
             ? 'Aproxime um pouco o rosto da camera'
-            : 'Olhe direto para a camera, sem inclinar a cabeca',
+            : 'Olhe direto para a camera, sem inclinar a cabeca'),
       );
       const baseline = average(straight.ratios);
 
-      // Etapa 2 — giro real para a esquerda (so avanca quando o giro e detectado)
+      // Etapa 2 — giro real para a esquerda, mantendo o rosto no oval
       const left = await runPhase(
         'LEFT',
         5,
-        (p) => p.noseRatio - baseline >= TURN_DEVIATION,
-        'Vire mais o rosto para a ESQUERDA e segure',
+        (p) => positionIssue(p, { strict: false }) == null && p.noseRatio - baseline >= TURN_DEVIATION,
+        (p) => positionIssue(p, { strict: false }) || 'Vire mais o rosto para a ESQUERDA e segure',
       );
 
-      // Etapa 3 — giro real para a direita
+      // Etapa 3 — giro real para a direita, mantendo o rosto no oval
       const right = await runPhase(
         'RIGHT',
         5,
-        (p) => baseline - p.noseRatio >= TURN_DEVIATION,
-        'Vire mais o rosto para a DIREITA e segure',
+        (p) => positionIssue(p, { strict: false }) == null && baseline - p.noseRatio >= TURN_DEVIATION,
+        (p) => positionIssue(p, { strict: false }) || 'Vire mais o rosto para a DIREITA e segure',
       );
 
       setStep('upload');
@@ -125,7 +137,18 @@ export default function EnrollPage() {
           videoRef={videoRef}
           ready={ready}
           error={cameraError}
-          highlight={step === 'capture' && live.ok}
+          guideState={
+            step === 'idle' && livePose != null
+              ? positioned
+                ? 'ok'
+                : 'bad'
+              : step === 'capture'
+                ? live.ok
+                  ? 'ok'
+                  : 'bad'
+                : null
+          }
+          chip={step === 'idle' ? positionMsg || (positioned ? 'Rosto posicionado ✓' : null) : null}
           overlay={
             <>
               {step === 'countdown' && (
@@ -173,8 +196,13 @@ export default function EnrollPage() {
               </li>
               <li>Tudo roda 100% no seu servidor local.</li>
             </ol>
-            <button type="button" className="btn primary big" onClick={start} disabled={!ready}>
-              Iniciar captura
+            <button
+              type="button"
+              className="btn primary big"
+              onClick={start}
+              disabled={!ready || !positioned}
+            >
+              {positioned ? 'Iniciar captura' : 'Posicione o rosto no oval para comecar'}
             </button>
           </div>
         )}

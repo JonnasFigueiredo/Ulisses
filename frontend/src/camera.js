@@ -122,3 +122,69 @@ export const STRAIGHT_RANGE = { min: 0.38, max: 0.62 };
 export const TURN_DEVIATION = 0.13;
 
 export const average = (values) => values.reduce((sum, v) => sum + v, 0) / values.length;
+
+/**
+ * Regiao de aceitacao do oval-guia, em coordenadas normalizadas do quadro capturado.
+ * O oval e desenhado no centro do palco; aqui exigimos o rosto centralizado e com
+ * tamanho adequado para que o guia visual corresponda ao que e validado de fato.
+ */
+export const OVAL = { maxDx: 0.12, maxDy: 0.15, minHeight: 0.28, maxHeight: 0.85 };
+
+/**
+ * Retorna a orientacao de posicionamento pendente, ou null se o rosto esta bem
+ * encaixado no oval. Com strict=false (fases de giro), a tolerancia de centro aumenta.
+ */
+export function positionIssue(pose, { strict = true } = {}) {
+  if (!pose || !pose.faceDetected) {
+    return 'Posicione o rosto dentro do oval';
+  }
+  if (pose.faceHeight < OVAL.minHeight) {
+    return 'Aproxime o rosto da camera';
+  }
+  if (pose.faceHeight > OVAL.maxHeight) {
+    return 'Afaste um pouco o rosto da camera';
+  }
+  const slack = strict ? 1 : 1.6;
+  if (
+    Math.abs(pose.centerX - 0.5) > OVAL.maxDx * slack ||
+    Math.abs(pose.centerY - 0.5) > OVAL.maxDy * slack
+  ) {
+    return 'Centralize o rosto no oval';
+  }
+  return null;
+}
+
+/**
+ * Monitora a pose continuamente enquanto `active` (ex.: antes de iniciar a captura),
+ * para dar feedback de posicionamento ao vivo no oval-guia.
+ */
+export function useLivePosition(videoRef, ready, active) {
+  const [pose, setPose] = useState(null);
+
+  useEffect(() => {
+    if (!ready || !active) {
+      setPose(null);
+      return undefined;
+    }
+    let stopped = false;
+    (async () => {
+      while (!stopped) {
+        try {
+          const blob = await captureFrame(videoRef.current);
+          const form = new FormData();
+          form.append('frame', new File([blob], 'pose.jpg', { type: 'image/jpeg' }));
+          const result = await api('/api/face/pose', { method: 'POST', form });
+          if (!stopped) setPose(result);
+        } catch {
+          if (!stopped) setPose(null);
+        }
+        await sleep(400);
+      }
+    })();
+    return () => {
+      stopped = true;
+    };
+  }, [videoRef, ready, active]);
+
+  return pose;
+}

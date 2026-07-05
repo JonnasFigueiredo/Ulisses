@@ -20,9 +20,17 @@ public final class FaceDtos {
 	 * Retorno da checagem de pose em tempo real usada para guiar a captura.
 	 * enrollQuality indica se o rosto tem resolucao suficiente para o CADASTRO
 	 * (distancia interocular minima, criterio ISO/IEC 19794-5).
+	 * centerX/centerY/faceHeight sao normalizados (0..1) em relacao ao quadro e
+	 * permitem ao frontend exigir o rosto dentro do oval-guia.
 	 */
 	public record PoseResponse(
-			boolean faceDetected, double noseRatio, double interocular, boolean enrollQuality) {}
+			boolean faceDetected,
+			double noseRatio,
+			double interocular,
+			boolean enrollQuality,
+			double centerX,
+			double centerY,
+			double faceHeight) {}
 
 	public record VerifyResult(
 			boolean success,
