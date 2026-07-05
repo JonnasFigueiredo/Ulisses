@@ -10,4 +10,5 @@ public record FaceProperties(
 		double matchThreshold,
 		double minDetectionScore,
 		int minFaceSize,
+		int minEnrollInterocular,
 		long challengeTtlSeconds) {}

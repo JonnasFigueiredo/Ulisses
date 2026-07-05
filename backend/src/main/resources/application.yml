@@ -38,8 +38,14 @@ ulisses:
     models-dir: ./models
     detection-model-url: https://huggingface.co/immich-app/buffalo_l/resolve/main/detection/model.onnx
     recognition-model-url: https://huggingface.co/immich-app/buffalo_l/resolve/main/recognition/model.onnx
-    # Similaridade de cosseno minima para considerar a mesma pessoa (ArcFace: mesmo rosto > 0.5, rostos diferentes < 0.3)
-    match-threshold: 0.42
+    # Limiar de decisao 1:1 (similaridade de cosseno, ArcFace). Pontos de operacao tipicos:
+    #   0.38 = conveniencia (FMR ~1:1.000)  |  0.42 = equilibrado (~1:10.000, requisito FIDO)
+    #   0.45 = recomendado (~1:100.000, folga sobre o FIDO)  |  0.50 = alta seguranca
+    # Mesmo rosto em condicoes normais fica acima de 0.55; rostos diferentes abaixo de 0.30.
+    match-threshold: 0.45
     min-detection-score: 0.60
     min-face-size: 80
+    # Qualidade da imagem de cadastro (ISO/IEC 19794-5): distancia interocular minima, em pixels,
+    # exigida nos frames frontais do cadastro. Garante template com resolucao suficiente.
+    min-enroll-interocular: 60
     challenge-ttl-seconds: 120

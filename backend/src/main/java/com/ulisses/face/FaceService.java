@@ -48,9 +48,9 @@ public class FaceService {
 	/** Desvio minimo do nariz (em fracao da distancia interocular) para aceitar o giro de cabeca. */
 	private static final double MIN_TURN_DEVIATION = 0.12;
 	/** Fracao minima dos frames de giro que precisam confirmar o movimento na direcao sorteada. */
-	private static final double MIN_TURN_FRAME_RATIO = 0.5;
+	private static final double MIN_TURN_FRAME_RATIO = 0.6;
 	/** Identidade minima nos frames de giro (pose lateral degrada o embedding, limiar mais baixo). */
-	private static final double MIN_TURN_IDENTITY = 0.28;
+	private static final double MIN_TURN_IDENTITY = 0.30;
 
 	private final FaceEngine engine;
 	private final FaceProperties properties;
@@ -86,7 +86,11 @@ public class FaceService {
 
 	@Transactional
 	public EnrollResult enroll(User user, List<MultipartFile> frames, List<String> phases) {
-		List<ProcessedFrame> processed = processFrames(frames, phases);
+		// No cadastro, os frames frontais precisam de resolucao minima (interocular) para
+		// gerar um template de qualidade; nos giros a exigencia nao se aplica (a distancia
+		// interocular projetada encolhe naturalmente com a rotacao da cabeca).
+		List<ProcessedFrame> processed =
+				processFrames(frames, phases, properties.minEnrollInterocular());
 
 		Map<String, List<ProcessedFrame>> byPhase = new HashMap<>();
 		for (ProcessedFrame frame : processed) {
@@ -140,7 +144,7 @@ public class FaceService {
 				.map(FaceTemplate::getEmbeddingVector)
 				.toList();
 
-		List<ProcessedFrame> processed = processFrames(frames, phases);
+		List<ProcessedFrame> processed = processFrames(frames, phases, 0);
 		List<ProcessedFrame> straight = processed.stream()
 				.filter(f -> "STRAIGHT".equals(f.phase()))
 				.toList();
@@ -153,11 +157,12 @@ public class FaceService {
 					"Rosto nao detectado com qualidade suficiente. Centralize o rosto e garanta boa iluminacao.");
 		}
 
-		// 1) Identidade: media da melhor similaridade de cada frame frontal contra os templates
-		double similarity = straight.stream()
+		// 1) Identidade: MEDIANA da melhor similaridade de cada frame frontal contra os templates.
+		// A mediana e robusta a frames atipicos (borrao, oclusao momentanea) nos dois sentidos:
+		// nem derruba um usuario legitimo por um frame ruim, nem aceita por um unico frame bom.
+		double similarity = median(straight.stream()
 				.mapToDouble(f -> bestSimilarity(f.embedding(), templateVectors))
-				.average()
-				.orElse(0);
+				.toArray());
 		boolean match = similarity >= properties.matchThreshold();
 
 		// 2) Prova de vida: o nariz precisa se deslocar na direcao sorteada durante a fase de giro
@@ -231,20 +236,32 @@ public class FaceService {
 	}
 
 	private static double medianNoseRatio(List<ProcessedFrame> frames) {
-		double[] ratios = frames.stream().mapToDouble(ProcessedFrame::noseRatio).sorted().toArray();
-		int n = ratios.length;
-		return n % 2 == 1 ? ratios[n / 2] : (ratios[n / 2 - 1] + ratios[n / 2]) / 2.0;
+		return median(frames.stream().mapToDouble(ProcessedFrame::noseRatio).toArray());
+	}
+
+	private static double median(double[] values) {
+		double[] sorted = values.clone();
+		java.util.Arrays.sort(sorted);
+		int n = sorted.length;
+		if (n == 0) {
+			return 0;
+		}
+		return n % 2 == 1 ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0;
 	}
 
 	/** Checagem leve de pose para guiar a captura em tempo real (sem extrair embedding). */
 	public FaceDtos.PoseResponse pose(MultipartFile frame) {
 		BufferedImage image = decode(frame);
 		if (image == null) {
-			return new FaceDtos.PoseResponse(false, 0);
+			return new FaceDtos.PoseResponse(false, 0, 0, false);
 		}
 		return engine.detectMainFace(image)
-				.map(d -> new FaceDtos.PoseResponse(true, round(d.noseRatio())))
-				.orElse(new FaceDtos.PoseResponse(false, 0));
+				.map(d -> new FaceDtos.PoseResponse(
+						true,
+						round(d.noseRatio()),
+						round(d.interocular()),
+						d.interocular() >= properties.minEnrollInterocular()))
+				.orElse(new FaceDtos.PoseResponse(false, 0, 0, false));
 	}
 
 	private record LivenessCheck(boolean passed, String detail) {}
@@ -288,8 +305,13 @@ public class FaceService {
 		return direction == Direction.LEFT ? "para a esquerda" : "para a direita";
 	}
 
-	/** Decodifica cada frame, detecta o rosto principal e extrai o embedding. Frames ruins sao descartados. */
-	private List<ProcessedFrame> processFrames(List<MultipartFile> frames, List<String> phases) {
+	/**
+	 * Decodifica cada frame, detecta o rosto principal e extrai o embedding. Frames ruins sao
+	 * descartados. O criterio de resolucao minima (interocular) e aplicado apenas aos frames
+	 * frontais (STRAIGHT), pois a rotacao da cabeca encolhe a distancia interocular projetada.
+	 */
+	private List<ProcessedFrame> processFrames(
+			List<MultipartFile> frames, List<String> phases, int minStraightInterocular) {
 		if (frames == null || frames.isEmpty()) {
 			throw ApiException.badRequest("Nenhum frame recebido");
 		}
@@ -307,9 +329,12 @@ public class FaceService {
 				continue;
 			}
 			Detection detection = face.get();
+			String phase = phases.get(i).trim().toUpperCase(Locale.ROOT);
+			if ("STRAIGHT".equals(phase) && detection.interocular() < minStraightInterocular) {
+				continue;
+			}
 			float[] embedding = engine.embed(image, detection);
-			processed.add(new ProcessedFrame(
-					phases.get(i).trim().toUpperCase(Locale.ROOT), embedding, detection.noseRatio()));
+			processed.add(new ProcessedFrame(phase, embedding, detection.noseRatio()));
 		}
 		return processed;
 	}

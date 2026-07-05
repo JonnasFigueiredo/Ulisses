@@ -50,6 +50,13 @@ public record Detection(float score, float x1, float y1, float x2, float y2, flo
 		return Math.max(-1f, Math.min(2f, ratio));
 	}
 
+	/** Distancia interocular em pixels — metrica de qualidade/resolucao do rosto (ISO/IEC 19794-5). */
+	public float interocular() {
+		float dx = kps[2] - kps[0];
+		float dy = kps[3] - kps[1];
+		return (float) Math.sqrt(dx * dx + dy * dy);
+	}
+
 	private static float clamp(float value, float max) {
 		return Math.max(0, Math.min(value, max));
 	}

@@ -78,7 +78,8 @@ export async function captureFrame(video) {
  * so avanca quando o usuario realmente executa o que foi pedido; caso contrario a
  * mensagem de orientacao permanece na tela ate o tempo limite.
  *
- * - isPoseOk(noseRatio): decide se a pose atual atende a etapa
+ * - isPoseOk(pose): decide se a pose atual atende a etapa (recebe {noseRatio, interocular, enrollQuality})
+ * - messages.adjust: string fixa ou funcao (pose) => string para orientacao dinamica
  * - onUpdate({ok, message, progress}): feedback ao vivo para a UI
  */
 export async function collectPosedFrames(
@@ -101,12 +102,14 @@ export async function collectPosedFrames(
     const progress = frames.length / count;
     if (!pose.faceDetected) {
       onUpdate?.({ ok: false, message: messages.noFace, progress });
-    } else if (isPoseOk(pose.noseRatio)) {
+    } else if (isPoseOk(pose)) {
       frames.push(blob);
       ratios.push(pose.noseRatio);
       onUpdate?.({ ok: true, message: messages.holding, progress: frames.length / count });
     } else {
-      onUpdate?.({ ok: false, message: messages.adjust, progress });
+      const adjust =
+        typeof messages.adjust === 'function' ? messages.adjust(pose) : messages.adjust;
+      onUpdate?.({ ok: false, message: adjust, progress });
     }
     await sleep(delayMs);
   }

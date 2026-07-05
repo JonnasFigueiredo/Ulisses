@@ -51,15 +51,24 @@ Sobe em `https://localhost:5173` (HTTPS com certificado autoassinado — aceite 
 2. O Vite exibe no terminal o endereço de rede (ex.: `https://192.168.0.10:5173`) — abra-o no navegador do celular.
 3. Aceite o certificado autoassinado. O HTTPS é obrigatório: navegadores só liberam a câmera em contexto seguro.
 
+## Calibração e padrões globais
+
+O sistema segue os referenciais internacionais de biometria facial:
+
+- **Decisão 1:1 (FIDO Biometrics / NIST FRVT)** — a aceitação usa a **mediana** da similaridade de cosseno dos frames frontais contra os templates (mediana é robusta a frames atípicos). O limiar padrão `0.45` opera com taxa de falsa aceitação (FMR) na ordem de **1:100.000**, com folga sobre o requisito FIDO de 1:10.000. Pontos de operação: `0.38` conveniência (~1:1.000) · `0.42` equilibrado (~1:10.000, requisito FIDO) · `0.45` recomendado · `0.50` alta segurança. Os valores exatos de FMR variam com população e condições de captura.
+- **Qualidade de cadastro (ISO/IEC 19794-5)** — os frames frontais do cadastro exigem **distância interocular ≥ 60 px**, garantindo resolução suficiente do template; a interface orienta o usuário a se aproximar da câmera quando necessário.
+- **Prova de vida ativa (ISO/IEC 30107)** — desafio dinâmico de uso único sorteado pelo servidor; ≥ 60% dos frames do giro precisam confirmar o movimento na direção sorteada, com verificação de identidade contínua durante o movimento.
+
 ## Configuração
 
 Principais chaves em `backend/src/main/resources/application.yml`:
 
 | Chave | Padrão | Descrição |
 |---|---|---|
-| `ulisses.face.match-threshold` | `0.42` | Similaridade de cosseno mínima para aceitar o rosto (aumente para mais rigor) |
+| `ulisses.face.match-threshold` | `0.45` | Limiar de decisão 1:1 (ver tabela de pontos de operação acima) |
 | `ulisses.face.min-detection-score` | `0.60` | Confiança mínima da detecção para aproveitar um frame |
-| `ulisses.face.min-face-size` | `80` | Tamanho mínimo do rosto em pixels (aproximação da câmera) |
+| `ulisses.face.min-face-size` | `80` | Tamanho mínimo do rosto em pixels |
+| `ulisses.face.min-enroll-interocular` | `60` | Distância interocular mínima (px) nos frames frontais do cadastro |
 | `ulisses.jwt.secret` | dev | **Defina `ULISSES_JWT_SECRET` em produção** |
 
 Console do H2 (dev): `http://localhost:8080/h2-console` — JDBC `jdbc:h2:file:./data/ulisses`, usuário `sa`, senha vazia.

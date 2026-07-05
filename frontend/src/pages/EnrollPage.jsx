@@ -61,12 +61,16 @@ export default function EnrollPage() {
 
       setStep('capture');
 
-      // Etapa 1 — frontal: define a referencia de pose do proprio usuario
+      // Etapa 1 — frontal: qualidade de cadastro (resolucao do rosto) + referencia de pose
       const straight = await runPhase(
         'STRAIGHT',
         8,
-        (r) => r >= STRAIGHT_RANGE.min && r <= STRAIGHT_RANGE.max,
-        'Olhe direto para a camera, sem inclinar a cabeca',
+        (p) =>
+          p.enrollQuality && p.noseRatio >= STRAIGHT_RANGE.min && p.noseRatio <= STRAIGHT_RANGE.max,
+        (p) =>
+          !p.enrollQuality
+            ? 'Aproxime um pouco o rosto da camera'
+            : 'Olhe direto para a camera, sem inclinar a cabeca',
       );
       const baseline = average(straight.ratios);
 
@@ -74,7 +78,7 @@ export default function EnrollPage() {
       const left = await runPhase(
         'LEFT',
         5,
-        (r) => r - baseline >= TURN_DEVIATION,
+        (p) => p.noseRatio - baseline >= TURN_DEVIATION,
         'Vire mais o rosto para a ESQUERDA e segure',
       );
 
@@ -82,7 +86,7 @@ export default function EnrollPage() {
       const right = await runPhase(
         'RIGHT',
         5,
-        (r) => baseline - r >= TURN_DEVIATION,
+        (p) => baseline - p.noseRatio >= TURN_DEVIATION,
         'Vire mais o rosto para a DIREITA e segure',
       );
 

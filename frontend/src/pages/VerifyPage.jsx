@@ -44,7 +44,7 @@ export default function VerifyPage() {
       setLive({ ok: false, message: 'Prepare-se...', progress: 0 });
       const straight = await collectPosedFrames(videoRef.current, {
         count: 6,
-        isPoseOk: (r) => r >= STRAIGHT_RANGE.min && r <= STRAIGHT_RANGE.max,
+        isPoseOk: (p) => p.noseRatio >= STRAIGHT_RANGE.min && p.noseRatio <= STRAIGHT_RANGE.max,
         onUpdate: setLive,
         timeoutMs: 30000,
         messages: {
@@ -61,8 +61,10 @@ export default function VerifyPage() {
       setLive({ ok: false, message: 'Prepare-se...', progress: 0 });
       const turn = await collectPosedFrames(videoRef.current, {
         count: 8,
-        isPoseOk: (r) =>
-          challenge.direction === 'LEFT' ? r - baseline >= TURN_DEVIATION : baseline - r >= TURN_DEVIATION,
+        isPoseOk: (p) =>
+          challenge.direction === 'LEFT'
+            ? p.noseRatio - baseline >= TURN_DEVIATION
+            : baseline - p.noseRatio >= TURN_DEVIATION,
         onUpdate: setLive,
         timeoutMs: 30000,
         messages: {
