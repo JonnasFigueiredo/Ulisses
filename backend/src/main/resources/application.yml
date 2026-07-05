@@ -1,0 +1,45 @@
+server:
+  port: 8080
+  tomcat:
+    # O cadastro/validacao envia dezenas de frames + fases no mesmo multipart
+    max-part-count: 200
+
+spring:
+  datasource:
+    url: jdbc:h2:file:./data/ulisses
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  servlet:
+    multipart:
+      max-file-size: 15MB
+      max-request-size: 120MB
+
+logging:
+  level:
+    com.ulisses: INFO
+
+ulisses:
+  jwt:
+    # Sobrescreva em producao com a variavel de ambiente ULISSES_JWT_SECRET
+    secret: ${ULISSES_JWT_SECRET:ulisses-dev-secret-key-nao-use-em-producao-9f4b2c7e1a8d6f3b5e0c9a7d4f2b8e6c}
+    expiration-minutes: 480
+  face:
+    # Modelos ONNX do pacote InsightFace buffalo_l (SCRFD det_10g + ArcFace w600k_r50).
+    # Baixados uma unica vez no primeiro start; toda a inferencia roda 100% local.
+    models-dir: ./models
+    detection-model-url: https://huggingface.co/immich-app/buffalo_l/resolve/main/detection/model.onnx
+    recognition-model-url: https://huggingface.co/immich-app/buffalo_l/resolve/main/recognition/model.onnx
+    # Similaridade de cosseno minima para considerar a mesma pessoa (ArcFace: mesmo rosto > 0.5, rostos diferentes < 0.3)
+    match-threshold: 0.42
+    min-detection-score: 0.60
+    min-face-size: 80
+    challenge-ttl-seconds: 120
