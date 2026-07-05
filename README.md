@@ -9,8 +9,9 @@ Sistema de cadastro e validação de biometria facial por vídeo, com **reconhec
 | Detecção facial + landmarks | **SCRFD (det_10g)** — detector do InsightFace, estado da arte em detecção facial |
 | Alinhamento facial | Transformação de similaridade (**Umeyama**) para o template canônico 112×112 |
 | Reconhecimento | **ArcFace (w600k_r50)** — embeddings de 512 dimensões, comparados por similaridade de cosseno |
-| Prova de vida (liveness) | **Desafio ativo**: o servidor sorteia um movimento de cabeça (esquerda/direita) que precisa ser executado ao vivo; o desafio é de uso único e expira em 2 minutos, bloqueando replay de fotos e vídeos gravados |
+| Prova de vida (liveness) | **Desafio ativo duplo**: o servidor sorteia uma sequência de DOIS movimentos de cabeça que precisam ser executados ao vivo, na ordem (vídeo gravado: 25% de chance de acertar); desafio de uso único, expira em 2 minutos, com **análise de trajetória** (movimento precisa ser contínuo, sem saltos de troca de foto/vídeo) e verificação de identidade contínua durante os giros |
 | Captura guiada por pose | Durante cadastro e validação, cada frame passa por checagem de pose em tempo real (`/api/face/pose`); a captura **só avança quando o usuário executa a pose pedida**, e o servidor revalida os giros no ato do cadastro |
+| Qualidade e antifraude | Nitidez mínima por variância do Laplaciano (descarta frames borrados), rejeição de frames com **mais de uma pessoa** no quadro, e **rate limiting** de 6 validações/minuto por usuário |
 | Inferência | **ONNX Runtime** rodando em CPU, embarcado no backend Java |
 
 Fluxo do usuário: criar conta / login → **cadastro facial por vídeo** (captura guiada em 3 poses) → **validação por vídeo** com prova de vida.
@@ -69,6 +70,7 @@ Principais chaves em `backend/src/main/resources/application.yml`:
 | `ulisses.face.min-detection-score` | `0.60` | Confiança mínima da detecção para aproveitar um frame |
 | `ulisses.face.min-face-size` | `80` | Tamanho mínimo do rosto em pixels |
 | `ulisses.face.min-enroll-interocular` | `60` | Distância interocular mínima (px) nos frames frontais do cadastro |
+| `ulisses.face.min-sharpness` | `40` | Nitidez mínima do rosto alinhado (variância do Laplaciano) |
 | `ulisses.jwt.secret` | dev | **Defina `ULISSES_JWT_SECRET` em produção** |
 
 Console do H2 (dev): `http://localhost:8080/h2-console` — JDBC `jdbc:h2:file:./data/ulisses`, usuário `sa`, senha vazia.

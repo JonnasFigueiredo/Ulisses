@@ -11,4 +11,5 @@ public record FaceProperties(
 		double minDetectionScore,
 		int minFaceSize,
 		int minEnrollInterocular,
+		double minSharpness,
 		long challengeTtlSeconds) {}

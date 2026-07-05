@@ -2,6 +2,7 @@ package com.ulisses.face;
 
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,7 +21,12 @@ public class ChallengeService {
 		RIGHT
 	}
 
-	public record Challenge(String id, Long userId, Direction direction, Instant expiresAt) {}
+	/**
+	 * Sequencia de DOIS movimentos sorteados de forma independente: um video gravado teria de
+	 * acertar as duas direcoes na ordem certa (25% de chance), alem de vencer a analise de
+	 * trajetoria e a expiracao curta.
+	 */
+	public record Challenge(String id, Long userId, List<Direction> sequence, Instant expiresAt) {}
 
 	private final SecureRandom random = new SecureRandom();
 	private final Map<String, Challenge> active = new ConcurrentHashMap<>();
@@ -37,7 +43,9 @@ public class ChallengeService {
 		Challenge challenge = new Challenge(
 				UUID.randomUUID().toString(),
 				userId,
-				random.nextBoolean() ? Direction.LEFT : Direction.RIGHT,
+				List.of(
+						random.nextBoolean() ? Direction.LEFT : Direction.RIGHT,
+						random.nextBoolean() ? Direction.LEFT : Direction.RIGHT),
 				Instant.now().plusSeconds(properties.challengeTtlSeconds()));
 		active.put(challenge.id(), challenge);
 		return challenge;

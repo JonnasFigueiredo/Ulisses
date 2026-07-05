@@ -54,7 +54,7 @@ public class FaceController {
 		Challenge challenge = challengeService.create(currentUser(authentication).getId());
 		return new ChallengeResponse(
 				challenge.id(),
-				challenge.direction().name(),
+				challenge.sequence().stream().map(Enum::name).toList(),
 				Duration.between(Instant.now(), challenge.expiresAt()).toSeconds());
 	}
 

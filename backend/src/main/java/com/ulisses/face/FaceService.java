@@ -51,6 +51,12 @@ public class FaceService {
 	private static final double MIN_TURN_FRAME_RATIO = 0.6;
 	/** Identidade minima nos frames de giro (pose lateral degrada o embedding, limiar mais baixo). */
 	private static final double MIN_TURN_IDENTITY = 0.30;
+	/** Salto maximo do nariz entre frames consecutivos do giro: movimento real e continuo. */
+	private static final double MAX_RATIO_JUMP = 0.45;
+	/** Um segundo rosto com area acima desta fracao do principal invalida o frame. */
+	private static final double SECOND_FACE_AREA_RATIO = 0.25;
+	/** Limite de tentativas de validacao por usuario por minuto (anti forca bruta). */
+	private static final int MAX_VERIFY_PER_MINUTE = 6;
 
 	private final FaceEngine engine;
 	private final FaceProperties properties;
@@ -84,13 +90,20 @@ public class FaceService {
 	/** Frame processado: embedding + pose estimada. */
 	private record ProcessedFrame(String phase, float[] embedding, float noseRatio) {}
 
+	/** Resultado do processamento com contadores de descarte para mensagens de erro precisas. */
+	private record ProcessResult(List<ProcessedFrame> frames, int multiFace, int blurry) {}
+
+	private final Map<Long, java.util.concurrent.ConcurrentLinkedDeque<Long>> verifyAttemptsByUser =
+			new java.util.concurrent.ConcurrentHashMap<>();
+
 	@Transactional
 	public EnrollResult enroll(User user, List<MultipartFile> frames, List<String> phases) {
 		// No cadastro, os frames frontais precisam de resolucao minima (interocular) para
 		// gerar um template de qualidade; nos giros a exigencia nao se aplica (a distancia
 		// interocular projetada encolhe naturalmente com a rotacao da cabeca).
-		List<ProcessedFrame> processed =
+		ProcessResult processResult =
 				processFrames(frames, phases, properties.minEnrollInterocular());
+		List<ProcessedFrame> processed = processResult.frames();
 
 		Map<String, List<ProcessedFrame>> byPhase = new HashMap<>();
 		for (ProcessedFrame frame : processed) {
@@ -98,9 +111,7 @@ public class FaceService {
 		}
 		int straightCount = byPhase.getOrDefault("STRAIGHT", List.of()).size();
 		if (processed.size() < MIN_ENROLL_FRAMES || straightCount < MIN_ENROLL_STRAIGHT_FRAMES) {
-			throw ApiException.badRequest(
-					"Nao foi possivel capturar o rosto com qualidade suficiente. Procure um lugar bem iluminado, "
-							+ "centralize o rosto no oval e tente novamente.");
+			throw ApiException.badRequest(qualityMessage(processResult));
 		}
 
 		validateEnrollmentPoses(byPhase);
@@ -132,6 +143,7 @@ public class FaceService {
 	@Transactional
 	public VerifyResult verify(
 			User user, String challengeId, List<MultipartFile> frames, List<String> phases) {
+		checkRateLimit(user.getId());
 		Challenge challenge = challengeService.consume(challengeId, user.getId());
 		if (challenge == null) {
 			throw ApiException.badRequest("Desafio de prova de vida invalido ou expirado. Inicie a validacao novamente.");
@@ -144,17 +156,14 @@ public class FaceService {
 				.map(FaceTemplate::getEmbeddingVector)
 				.toList();
 
-		List<ProcessedFrame> processed = processFrames(frames, phases, 0);
+		ProcessResult processResult = processFrames(frames, phases, 0);
+		List<ProcessedFrame> processed = processResult.frames();
 		List<ProcessedFrame> straight = processed.stream()
 				.filter(f -> "STRAIGHT".equals(f.phase()))
 				.toList();
-		List<ProcessedFrame> turn = processed.stream()
-				.filter(f -> "TURN".equals(f.phase()))
-				.toList();
 
 		if (straight.size() < MIN_VERIFY_STRAIGHT_FRAMES) {
-			throw ApiException.badRequest(
-					"Rosto nao detectado com qualidade suficiente. Centralize o rosto e garanta boa iluminacao.");
+			throw ApiException.badRequest(qualityMessage(processResult));
 		}
 
 		// 1) Identidade: MEDIANA da melhor similaridade de cada frame frontal contra os templates.
@@ -165,8 +174,10 @@ public class FaceService {
 				.toArray());
 		boolean match = similarity >= properties.matchThreshold();
 
-		// 2) Prova de vida: o nariz precisa se deslocar na direcao sorteada durante a fase de giro
-		LivenessCheck liveness = checkLiveness(challenge.direction(), straight, turn, templateVectors);
+		// 2) Prova de vida: os DOIS movimentos sorteados precisam ser executados na ordem,
+		// com trajetoria continua e mantendo a mesma identidade
+		LivenessCheck liveness =
+				checkLiveness(challenge.sequence(), straight, processed, templateVectors);
 
 		boolean success = match && liveness.passed();
 		VerificationAttempt attempt = new VerificationAttempt();
@@ -253,7 +264,7 @@ public class FaceService {
 	public FaceDtos.PoseResponse pose(MultipartFile frame) {
 		BufferedImage image = decode(frame);
 		if (image == null) {
-			return new FaceDtos.PoseResponse(false, 0, 0, false, 0, 0, 0);
+			return new FaceDtos.PoseResponse(false, 0, 0, false, 0, 0, 0, false);
 		}
 		return engine.detectMainFace(image)
 				.map(d -> new FaceDtos.PoseResponse(
@@ -263,45 +274,65 @@ public class FaceService {
 						d.interocular() >= properties.minEnrollInterocular(),
 						round((d.x1() + d.x2()) / 2.0 / image.getWidth()),
 						round((d.y1() + d.y2()) / 2.0 / image.getHeight()),
-						round(d.height() / (double) image.getHeight())))
-				.orElse(new FaceDtos.PoseResponse(false, 0, 0, false, 0, 0, 0));
+						round(d.height() / (double) image.getHeight()),
+						hasSecondFace(image, d)))
+				.orElse(new FaceDtos.PoseResponse(false, 0, 0, false, 0, 0, 0, false));
 	}
 
 	private record LivenessCheck(boolean passed, String detail) {}
 
 	private LivenessCheck checkLiveness(
-			Direction direction,
+			List<Direction> sequence,
 			List<ProcessedFrame> straight,
-			List<ProcessedFrame> turn,
+			List<ProcessedFrame> allProcessed,
 			List<float[]> templateVectors) {
-		if (turn.size() < 3) {
-			return new LivenessCheck(false, "Movimento de cabeca nao detectado");
-		}
-		double baseline = straight.stream().mapToDouble(ProcessedFrame::noseRatio).average().orElse(0.5);
+		double baseline = medianNoseRatio(straight);
+		List<ProcessedFrame> allTurnFrames = new ArrayList<>();
 
-		// Nos frames sem espelhamento, girar a cabeca para a PROPRIA esquerda desloca o nariz para a
-		// direita da imagem (ratio aumenta); para a direita, o inverso.
-		long moved = turn.stream()
-				.filter(f -> direction == Direction.LEFT
-						? f.noseRatio() - baseline >= MIN_TURN_DEVIATION
-						: baseline - f.noseRatio() >= MIN_TURN_DEVIATION)
-				.count();
-		boolean movementOk = moved >= Math.ceil(turn.size() * MIN_TURN_FRAME_RATIO);
-		if (!movementOk) {
-			return new LivenessCheck(
-					false,
-					"O movimento de cabeca esperado (" + directionLabel(direction) + ") nao foi confirmado");
+		for (int i = 0; i < sequence.size(); i++) {
+			Direction direction = sequence.get(i);
+			String phase = "TURN" + (i + 1);
+			List<ProcessedFrame> segment = allProcessed.stream()
+					.filter(f -> phase.equals(f.phase()))
+					.toList();
+			if (segment.size() < 3) {
+				return new LivenessCheck(
+						false, "Movimento " + (i + 1) + " (" + directionLabel(direction) + ") nao detectado");
+			}
+
+			// Nos frames sem espelhamento, girar a cabeca para a PROPRIA esquerda desloca o nariz
+			// para a direita da imagem (ratio aumenta); para a direita, o inverso.
+			long moved = segment.stream()
+					.filter(f -> direction == Direction.LEFT
+							? f.noseRatio() - baseline >= MIN_TURN_DEVIATION
+							: baseline - f.noseRatio() >= MIN_TURN_DEVIATION)
+					.count();
+			if (moved < Math.ceil(segment.size() * MIN_TURN_FRAME_RATIO)) {
+				return new LivenessCheck(
+						false,
+						"O movimento " + (i + 1) + " (" + directionLabel(direction) + ") nao foi confirmado");
+			}
+
+			// Trajetoria continua: um giro real nao "teleporta" — saltos bruscos do nariz entre
+			// frames consecutivos indicam troca de foto/video no meio da captura
+			for (int j = 1; j < segment.size(); j++) {
+				if (Math.abs(segment.get(j).noseRatio() - segment.get(j - 1).noseRatio()) > MAX_RATIO_JUMP) {
+					return new LivenessCheck(false, "Movimento descontinuo detectado durante o giro");
+				}
+			}
+			allTurnFrames.addAll(segment);
 		}
 
 		// A pessoa que girou a cabeca precisa ser a mesma dos templates (evita troca de rosto no meio)
-		double turnIdentity = turn.stream()
+		double turnIdentity = allTurnFrames.stream()
 				.mapToDouble(f -> bestSimilarity(f.embedding(), templateVectors))
 				.average()
 				.orElse(0);
 		if (turnIdentity < MIN_TURN_IDENTITY) {
-			return new LivenessCheck(false, "Identidade inconsistente durante o movimento");
+			return new LivenessCheck(false, "Identidade inconsistente durante os movimentos");
 		}
-		return new LivenessCheck(true, "Movimento " + directionLabel(direction) + " confirmado");
+		String executed = sequence.stream().map(FaceService::directionLabel).reduce((a, b) -> a + " e " + b).orElse("");
+		return new LivenessCheck(true, "Movimentos " + executed + " confirmados");
 	}
 
 	private static String directionLabel(Direction direction) {
@@ -310,10 +341,13 @@ public class FaceService {
 
 	/**
 	 * Decodifica cada frame, detecta o rosto principal e extrai o embedding. Frames ruins sao
-	 * descartados. O criterio de resolucao minima (interocular) e aplicado apenas aos frames
-	 * frontais (STRAIGHT), pois a rotacao da cabeca encolhe a distancia interocular projetada.
+	 * descartados, com contadores por motivo. Regras:
+	 * - exatamente UMA pessoa no quadro (um segundo rosto relevante invalida o frame);
+	 * - nitidez minima do rosto alinhado (variancia do Laplaciano) contra borrao;
+	 * - resolucao minima (interocular) apenas nos frames frontais, pois a rotacao da
+	 *   cabeca encolhe a distancia interocular projetada.
 	 */
-	private List<ProcessedFrame> processFrames(
+	private ProcessResult processFrames(
 			List<MultipartFile> frames, List<String> phases, int minStraightInterocular) {
 		if (frames == null || frames.isEmpty()) {
 			throw ApiException.badRequest("Nenhum frame recebido");
@@ -322,6 +356,8 @@ public class FaceService {
 			throw ApiException.badRequest("Cada frame precisa da fase de captura correspondente");
 		}
 		List<ProcessedFrame> processed = new ArrayList<>();
+		int multiFace = 0;
+		int blurry = 0;
 		for (int i = 0; i < frames.size(); i++) {
 			BufferedImage image = decode(frames.get(i));
 			if (image == null) {
@@ -332,14 +368,87 @@ public class FaceService {
 				continue;
 			}
 			Detection detection = face.get();
+			if (hasSecondFace(image, detection)) {
+				multiFace++;
+				continue;
+			}
 			String phase = phases.get(i).trim().toUpperCase(Locale.ROOT);
 			if ("STRAIGHT".equals(phase) && detection.interocular() < minStraightInterocular) {
 				continue;
 			}
-			float[] embedding = engine.embed(image, detection);
+			BufferedImage aligned = engine.alignFace(image, detection);
+			if (sharpness(aligned) < properties.minSharpness()) {
+				blurry++;
+				continue;
+			}
+			float[] embedding = engine.embedAligned(aligned);
 			processed.add(new ProcessedFrame(phase, embedding, detection.noseRatio()));
 		}
-		return processed;
+		return new ProcessResult(processed, multiFace, blurry);
+	}
+
+	private boolean hasSecondFace(BufferedImage image, Detection main) {
+		return engine.detect(image).stream()
+				.filter(d -> d != main && d.score() >= properties.minDetectionScore())
+				.anyMatch(d -> d.area() >= main.area() * SECOND_FACE_AREA_RATIO);
+	}
+
+	/** Mensagem de erro explicando o principal motivo de descarte dos frames. */
+	private static String qualityMessage(ProcessResult result) {
+		if (result.multiFace() >= 3) {
+			return "Detectamos mais de uma pessoa no video. Apenas o titular deve aparecer no quadro.";
+		}
+		if (result.blurry() >= 3) {
+			return "A imagem ficou tremida ou desfocada. Mantenha a camera estavel, limpe a lente e tente novamente.";
+		}
+		return "Nao foi possivel capturar o rosto com qualidade suficiente. Procure um lugar bem iluminado, "
+				+ "centralize o rosto no oval e tente novamente.";
+	}
+
+	/**
+	 * Nitidez pela variancia do Laplaciano (4-vizinhos) sobre o rosto alinhado em tons de cinza.
+	 * Rostos nitidos ficam bem acima de 100; borrao de movimento/foco cai para menos de 40.
+	 */
+	private static double sharpness(BufferedImage image) {
+		int width = image.getWidth();
+		int height = image.getHeight();
+		int[] pixels = image.getRGB(0, 0, width, height, null, 0, width);
+		double[] gray = new double[pixels.length];
+		for (int i = 0; i < pixels.length; i++) {
+			int p = pixels[i];
+			gray[i] = 0.299 * ((p >> 16) & 0xFF) + 0.587 * ((p >> 8) & 0xFF) + 0.114 * (p & 0xFF);
+		}
+		double sum = 0;
+		double sumSquares = 0;
+		int count = 0;
+		for (int y = 1; y < height - 1; y++) {
+			for (int x = 1; x < width - 1; x++) {
+				int idx = y * width + x;
+				double laplacian = 4 * gray[idx]
+						- gray[idx - 1]
+						- gray[idx + 1]
+						- gray[idx - width]
+						- gray[idx + width];
+				sum += laplacian;
+				sumSquares += laplacian * laplacian;
+				count++;
+			}
+		}
+		double mean = sum / count;
+		return sumSquares / count - mean * mean;
+	}
+
+	private void checkRateLimit(Long userId) {
+		var attempts = verifyAttemptsByUser.computeIfAbsent(
+				userId, k -> new java.util.concurrent.ConcurrentLinkedDeque<>());
+		long now = System.currentTimeMillis();
+		attempts.removeIf(t -> now - t > 60_000);
+		if (attempts.size() >= MAX_VERIFY_PER_MINUTE) {
+			throw new ApiException(
+					org.springframework.http.HttpStatus.TOO_MANY_REQUESTS,
+					"Muitas tentativas de validacao. Aguarde um minuto e tente novamente.");
+		}
+		attempts.add(now);
 	}
 
 	private BufferedImage decode(MultipartFile file) {

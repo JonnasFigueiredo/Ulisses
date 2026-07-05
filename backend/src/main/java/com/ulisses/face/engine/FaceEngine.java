@@ -85,9 +85,17 @@ public class FaceEngine {
 	}
 
 	public float[] embed(BufferedImage image, Detection detection) {
+		return embedAligned(alignFace(image, detection));
+	}
+
+	public BufferedImage alignFace(BufferedImage image, Detection detection) {
 		ensureReady();
-		BufferedImage aligned = FaceAligner.align(image, detection.kps());
-		return embedder.embed(aligned);
+		return FaceAligner.align(image, detection.kps());
+	}
+
+	public float[] embedAligned(BufferedImage alignedFace) {
+		ensureReady();
+		return embedder.embed(alignedFace);
 	}
 
 	private void ensureReady() {

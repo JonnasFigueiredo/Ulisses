@@ -14,7 +14,9 @@ public final class FaceDtos {
 	public record EnrollResult(
 			int framesReceived, int framesUsed, double consistency, Map<String, Integer> framesPerPhase) {}
 
-	public record ChallengeResponse(String challengeId, String direction, long expiresInSeconds) {}
+	/** directions: sequencia de movimentos a executar, na ordem (ex.: ["LEFT","RIGHT"]). */
+	public record ChallengeResponse(
+			String challengeId, List<String> directions, long expiresInSeconds) {}
 
 	/**
 	 * Retorno da checagem de pose em tempo real usada para guiar a captura.
@@ -30,7 +32,8 @@ public final class FaceDtos {
 			boolean enrollQuality,
 			double centerX,
 			double centerY,
-			double faceHeight) {}
+			double faceHeight,
+			boolean multipleFaces) {}
 
 	public record VerifyResult(
 			boolean success,

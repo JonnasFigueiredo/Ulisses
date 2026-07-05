@@ -18,7 +18,9 @@ export default function VerifyPage() {
   const { videoRef, ready, error: cameraError } = useCamera();
   const [step, setStep] = useState('idle'); // idle | countdown | straight | turn | upload | done
   const [countdown, setCountdown] = useState(3);
-  const [direction, setDirection] = useState(null); // LEFT | RIGHT (lado do proprio usuario)
+  // Sequencia de DOIS movimentos sorteados pelo servidor (lado do proprio usuario)
+  const [directions, setDirections] = useState([]);
+  const [turnIndex, setTurnIndex] = useState(0);
   const [live, setLive] = useState({ ok: false, message: '', progress: 0 });
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -35,10 +37,10 @@ export default function VerifyPage() {
     setError(null);
     setResult(null);
     try {
-      // O servidor sorteia o desafio de prova de vida (uso unico, expira em 2 min)
+      // O servidor sorteia o desafio de prova de vida: DOIS movimentos em sequencia
+      // (uso unico, expira em 2 min) — um video gravado nao acerta a ordem sorteada
       const challenge = await api('/api/face/challenge', { method: 'POST' });
-      setDirection(challenge.direction);
-      const directionLabel = challenge.direction === 'LEFT' ? 'ESQUERDA' : 'DIREITA';
+      setDirections(challenge.directions);
 
       setStep('countdown');
       for (let c = 3; c >= 1; c--) {
@@ -66,36 +68,48 @@ export default function VerifyPage() {
       });
       const baseline = average(straight.ratios);
 
-      // Desafio: o giro so conta quando detectado na direcao sorteada
-      setStep('turn');
-      setLive({ ok: false, message: 'Prepare-se...', progress: 0 });
-      const turn = await collectPosedFrames(videoRef.current, {
-        count: 8,
-        isPoseOk: (p) =>
-          positionIssue(p, { strict: false }) == null &&
-          (challenge.direction === 'LEFT'
-            ? p.noseRatio - baseline >= TURN_DEVIATION
-            : baseline - p.noseRatio >= TURN_DEVIATION),
-        onUpdate: setLive,
-        timeoutMs: 30000,
-        messages: {
-          noFace: 'Rosto nao detectado — mantenha o rosto visivel durante o giro',
-          adjust: (p) =>
-            positionIssue(p, { strict: false }) ||
-            `Vire mais o rosto para a ${directionLabel} e segure`,
-          holding: 'Isso! Mantenha o giro',
-          timeout: 'O movimento de cabeca nao foi confirmado a tempo. Tente novamente.',
-        },
-      });
+      // Desafios: cada giro so conta quando detectado na direcao sorteada, na ordem
+      const allFrames = [...straight.frames];
+      const allPhases = straight.frames.map(() => 'STRAIGHT');
+      for (let i = 0; i < challenge.directions.length; i++) {
+        const dir = challenge.directions[i];
+        const dirLabel = dir === 'LEFT' ? 'ESQUERDA' : 'DIREITA';
+        setTurnIndex(i);
+        setStep('turn');
+        setLive({ ok: false, message: 'Prepare-se...', progress: 0 });
+        // pequena pausa para o usuario voltar ao centro entre um giro e outro
+        if (i > 0) await sleep(900);
+        const turn = await collectPosedFrames(videoRef.current, {
+          count: 6,
+          isPoseOk: (p) =>
+            positionIssue(p, { strict: false }) == null &&
+            (dir === 'LEFT'
+              ? p.noseRatio - baseline >= TURN_DEVIATION
+              : baseline - p.noseRatio >= TURN_DEVIATION),
+          onUpdate: setLive,
+          timeoutMs: 30000,
+          messages: {
+            noFace: 'Rosto nao detectado — mantenha o rosto visivel durante o giro',
+            adjust: (p) =>
+              positionIssue(p, { strict: false }) ||
+              `Vire mais o rosto para a ${dirLabel} e segure`,
+            holding: 'Isso! Mantenha o giro',
+            timeout: 'O movimento de cabeca nao foi confirmado a tempo. Tente novamente.',
+          },
+        });
+        turn.frames.forEach((blob) => {
+          allFrames.push(blob);
+          allPhases.push(`TURN${i + 1}`);
+        });
+      }
 
       setStep('upload');
       const form = new FormData();
       form.append('challengeId', challenge.challengeId);
-      const phases = [...straight.frames.map(() => 'STRAIGHT'), ...turn.frames.map(() => 'TURN')];
-      [...straight.frames, ...turn.frames].forEach((blob, index) => {
+      allFrames.forEach((blob, index) => {
         form.append('frames', new File([blob], `frame-${index}.jpg`, { type: 'image/jpeg' }));
       });
-      phases.forEach((phase) => form.append('phases', phase));
+      allPhases.forEach((phase) => form.append('phases', phase));
       const data = await api('/api/face/verify', { method: 'POST', form });
       setResult(data);
       setStep('done');
@@ -107,8 +121,9 @@ export default function VerifyPage() {
     }
   }
 
-  const directionLabel = direction === 'LEFT' ? 'ESQUERDA' : 'DIREITA';
-  const directionArrow = direction === 'LEFT' ? '←' : '→';
+  const currentDirection = directions[turnIndex];
+  const directionLabel = currentDirection === 'LEFT' ? 'ESQUERDA' : 'DIREITA';
+  const directionArrow = currentDirection === 'LEFT' ? '←' : '→';
 
   return (
     <div className="page">
@@ -166,7 +181,9 @@ export default function VerifyPage() {
                   <div className="progress">
                     <div className="progress-fill" style={{ width: `${live.progress * 100}%` }} />
                   </div>
-                  <span className="muted">Prova de vida: mantenha o giro ate a barra completar</span>
+                  <span className="muted">
+                    Prova de vida — movimento {turnIndex + 1} de {directions.length}
+                  </span>
                 </div>
               )}
               {step === 'upload' && (
@@ -185,9 +202,10 @@ export default function VerifyPage() {
           <div className="card">
             <h2>Validacao com prova de vida</h2>
             <p className="muted">
-              Alem de comparar seu rosto com a biometria cadastrada, o sistema sorteia um movimento de
-              cabeca que deve ser executado ao vivo — fotos e videos gravados nao passam. O movimento e
-              verificado em tempo real: a barra so avanca quando voce gira o rosto de verdade.
+              Alem de comparar seu rosto com a biometria cadastrada, o sistema sorteia uma sequencia de
+              DOIS movimentos de cabeca que devem ser executados ao vivo, na ordem — fotos e videos
+              gravados nao passam. Cada movimento e verificado em tempo real: a barra so avanca quando
+              voce gira o rosto de verdade.
             </p>
             <button
               type="button"

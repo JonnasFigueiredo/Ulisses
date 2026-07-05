@@ -138,6 +138,9 @@ export function positionIssue(pose, { strict = true } = {}) {
   if (!pose || !pose.faceDetected) {
     return 'Posicione o rosto dentro do oval';
   }
+  if (pose.multipleFaces) {
+    return 'Apenas uma pessoa deve aparecer no video';
+  }
   if (pose.faceHeight < OVAL.minHeight) {
     return 'Aproxime o rosto da camera';
   }

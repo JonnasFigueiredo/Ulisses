@@ -48,4 +48,7 @@ ulisses:
     # Qualidade da imagem de cadastro (ISO/IEC 19794-5): distancia interocular minima, em pixels,
     # exigida nos frames frontais do cadastro. Garante template com resolucao suficiente.
     min-enroll-interocular: 60
+    # Nitidez minima do rosto alinhado (variancia do Laplaciano). Frames borrados por movimento
+    # ou foco ruim sao descartados; rostos nitidos de webcam ficam bem acima de 100.
+    min-sharpness: 40
     challenge-ttl-seconds: 120
