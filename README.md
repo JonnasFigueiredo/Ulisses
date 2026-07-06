@@ -107,3 +107,7 @@ Console do H2 (dev): `http://localhost:8080/h2-console` — JDBC `jdbc:h2:file:.
 | `POST` | `/api/face/verify` | Validação (multipart: `challengeId`, `frames[]`, `phases[]`) |
 | `DELETE` | `/api/face/enrollment` | Remove a biometria |
 | `GET` | `/api/face/history` | Últimas validações |
+
+## Licença
+
+Distribuído sob a licença [MIT](LICENSE).
