@@ -1,0 +1,30 @@
+# Sobe o Ulisses completo (backend + frontend) com um comando: docker compose up --build
+# Antes de producao: copie .env.example para .env e troque ULISSES_JWT_SECRET e ULISSES_CRYPTO_KEY.
+
+services:
+  backend:
+    build: ./backend
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # Fallbacks apenas para avaliacao local — TROQUE em producao (ver .env.example).
+      ULISSES_JWT_SECRET: ${ULISSES_JWT_SECRET:-troque-em-producao-0f1e2d3c4b5a69788796a5b4c3d2e1f0}
+      ULISSES_CRYPTO_KEY: ${ULISSES_CRYPTO_KEY:-troque-em-producao-a1b2c3d4e5f6}
+      ULISSES_CORS_ORIGINS: ${ULISSES_CORS_ORIGINS:-http://localhost:5173,https://localhost,capacitor://localhost}
+    volumes:
+      - ulisses-data:/app/data
+      - ulisses-models:/app/models
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+    restart: unless-stopped
+
+volumes:
+  ulisses-data:
+  ulisses-models:

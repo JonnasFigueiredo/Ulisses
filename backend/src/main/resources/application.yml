@@ -29,9 +29,15 @@ logging:
 
 ulisses:
   jwt:
-    # Sobrescreva em producao com a variavel de ambiente ULISSES_JWT_SECRET
+    # Sobrescreva em producao com a variavel de ambiente ULISSES_JWT_SECRET (ver perfil prod)
     secret: ${ULISSES_JWT_SECRET:ulisses-dev-secret-key-nao-use-em-producao-9f4b2c7e1a8d6f3b5e0c9a7d4f2b8e6c}
     expiration-minutes: 480
+  crypto:
+    # Chave para cifrar os templates biometricos em repouso (AES-256-GCM). Vazio = dev (sem cifra).
+    key: ${ULISSES_CRYPTO_KEY:}
+  cors:
+    # Origens permitidas (separadas por virgula). "*" apenas em dev; restrinja em producao.
+    allowed-origins: ${ULISSES_CORS_ORIGINS:*}
   face:
     # Modelos ONNX do pacote InsightFace buffalo_l (SCRFD det_10g + ArcFace w600k_r50).
     # Baixados uma unica vez no primeiro start; toda a inferencia roda 100% local.

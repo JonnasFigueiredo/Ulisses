@@ -20,3 +20,6 @@ Thumbs.db
 
 # APK gerado (artefato de build)
 *.apk
+
+# Variaveis de ambiente com segredos (nao commitar; use .env.example como modelo)
+.env

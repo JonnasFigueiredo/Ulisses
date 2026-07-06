@@ -1,11 +1,12 @@
 package com.ulisses.face;
 
+import com.ulisses.crypto.EncryptedBytesConverter;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import java.nio.ByteBuffer;
 import java.time.Instant;
@@ -25,8 +26,9 @@ public class FaceTemplate {
 	@Column(nullable = false, length = 20)
 	private String phase;
 
-	@Lob
-	@Column(nullable = false)
+	/** Bytes do embedding, cifrados em repouso (AES-256-GCM) quando ULISSES_CRYPTO_KEY esta definido. */
+	@Convert(converter = EncryptedBytesConverter.class)
+	@Column(nullable = false, length = 4096)
 	private byte[] embedding;
 
 	@Column(nullable = false)

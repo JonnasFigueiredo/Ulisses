@@ -1,6 +1,25 @@
 # Ulisses · Biometria Facial por Vídeo
 
-Sistema de cadastro e validação de biometria facial por vídeo, com **reconhecimento 100% local** — nenhuma imagem sai da sua infraestrutura.
+![CI](https://github.com/JonnasFigueiredo/Ulisses/actions/workflows/ci.yml/badge.svg)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Java](https://img.shields.io/badge/Java-21-orange)
+![React](https://img.shields.io/badge/React-18-61dafb)
+
+Cadastro e validação de biometria facial por vídeo, com **reconhecimento 100% local** — nenhuma imagem sai da sua infraestrutura. Pensado como um bloco funcional que empresas podem hospedar por conta própria, com prova de vida (ativa + anti-spoofing), tema claro/escuro e app Android.
+
+> ⚠️ **Antes de usar comercialmente, leia [Licenças dos componentes](#licenças-dos-componentes) e o [Checklist de produção](#checklist-de-produção).** O código é MIT, mas os modelos padrão de detecção/reconhecimento têm licença de uso não-comercial.
+
+## Início rápido (Docker)
+
+Sobe backend + frontend com um comando:
+
+```bash
+git clone https://github.com/JonnasFigueiredo/Ulisses.git
+cd Ulisses
+docker compose up --build
+```
+
+Abra **http://localhost:5173** (a câmera funciona em `localhost` sem HTTPS). No primeiro start o backend baixa os modelos ONNX (~185 MB) uma única vez. Para produção, `cp .env.example .env` e defina segredos fortes antes de subir.
 
 ## Como funciona
 
@@ -15,18 +34,35 @@ Sistema de cadastro e validação de biometria facial por vídeo, com **reconhec
 | Qualidade e antifraude | Nitidez mínima por variância do Laplaciano (descarta frames borrados), rejeição de frames com **mais de uma pessoa** no quadro, e **rate limiting** de 6 validações/minuto por usuário |
 | Inferência | **ONNX Runtime** rodando em CPU, embarcado no backend Java |
 
+### Arquitetura
+
+```mermaid
+flowchart LR
+    subgraph Cliente
+      W[Web React / Vite]
+      A[App Android / Capacitor]
+    end
+    W -->|/api REST + JWT| B
+    A -->|/api REST + JWT| B
+    subgraph Backend[Backend Java / Spring Boot]
+      B[API REST] --> S[FaceService]
+      S --> E[FaceEngine · ONNX Runtime]
+      E --> D[SCRFD detecção]
+      E --> R[ArcFace embeddings]
+      E --> P[MiniFASNet anti-spoofing]
+      S --> DB[(H2 · templates cifrados)]
+    end
+```
+
 Fluxo do usuário: criar conta / login → **cadastro facial por vídeo** (captura guiada em 3 poses) → **validação por vídeo** com prova de vida.
 
 - Os modelos ONNX (~180 MB) são baixados automaticamente **uma única vez** no primeiro start do backend, para a pasta `backend/models/`. Depois disso o sistema funciona offline.
 - Backend: Java 21 + Spring Boot 3.5 (JWT, JPA/H2). Frontend: React 18 + Vite, responsivo (webcam no desktop, câmera frontal no celular), com **tema claro/escuro** (respeita a preferência do sistema e permite alternar).
 - Identidade visual: o ícone é um **elmo coríntio** (capacete do herói grego que dá nome ao sistema). As artes-fonte ficam em `frontend/assets/`; os ícones do Android são gerados com `npx @capacitor/assets generate --android`.
 
-## Requisitos
+## Rodando em desenvolvimento
 
-- JDK 21
-- Node.js 18+
-
-## Rodando
+Para desenvolvimento sem Docker (requer **JDK 21** e **Node.js 18+**):
 
 ### Backend
 
@@ -120,9 +156,46 @@ Principais chaves em `backend/src/main/resources/application.yml`:
 | `ulisses.face.passive-liveness.enabled` | `true` | Liga a camada de anti-spoofing por textura (MiniFASNet) |
 | `ulisses.face.passive-liveness.threshold` | `0.55` | Score mínimo de liveness passiva (calibre com o harness) |
 | `ulisses.face.passive-liveness.live-class-index` | `2` | Índice da classe "vivo" no softmax do modelo (calibre com o harness) |
-| `ulisses.jwt.secret` | dev | **Defina `ULISSES_JWT_SECRET` em produção** |
+| `ulisses.jwt.secret` | dev | Segredo JWT — **defina `ULISSES_JWT_SECRET` em produção** |
+| `ulisses.crypto.key` | vazio | Chave AES-256-GCM dos templates — **defina `ULISSES_CRYPTO_KEY` em produção** |
+| `ulisses.cors.allowed-origins` | `*` | Origens do CORS — **restrinja via `ULISSES_CORS_ORIGINS` em produção** |
 
-Console do H2 (dev): `http://localhost:8080/h2-console` — JDBC `jdbc:h2:file:./data/ulisses`, usuário `sa`, senha vazia.
+Console do H2 (apenas dev): `http://localhost:8080/h2-console` — JDBC `jdbc:h2:file:./data/ulisses`, usuário `sa`, senha vazia. **Desligado no perfil `prod`.**
+
+## Checklist de produção
+
+O padrão do repositório é voltado a desenvolvimento. Para produção, ative o perfil `prod`
+(`SPRING_PROFILES_ACTIVE=prod`) e defina as variáveis de ambiente — a aplicação **não sobe** sem elas:
+
+| Item | Como |
+|---|---|
+| Segredo JWT forte | `ULISSES_JWT_SECRET` (ex.: `openssl rand -hex 32`) |
+| Criptografia dos templates em repouso | `ULISSES_CRYPTO_KEY` — cifra AES-256-GCM (obrigatória no prod) |
+| CORS restrito | `ULISSES_CORS_ORIGINS` com as origens exatas do seu frontend/app |
+| Console H2 desligado | automático no perfil `prod` |
+| Licença dos modelos | resolver o uso comercial (ver abaixo) |
+| Prova de vida passiva | calibrar/validar com o harness antes de confiar como antifraude |
+| Banco | H2 embutido serve para começar; para escala, migre para Postgres + Flyway |
+| HTTPS | termine TLS num proxy reverso à frente do frontend/backend |
+
+O `docker-compose.yml` já sobe com o perfil `prod`; troque os valores de `.env` antes de expor.
+
+## Licenças dos componentes
+
+O **código deste repositório é [MIT](LICENSE)**. Os modelos de IA embutidos têm licenças próprias
+que o adotante precisa respeitar:
+
+| Componente | Licença | Uso comercial |
+|---|---|---|
+| Código do Ulisses (backend + frontend) | MIT | ✅ Livre |
+| Anti-spoofing **MiniFASNet** (Silent-Face) | Apache-2.0 | ✅ Livre |
+| Detecção **SCRFD** + Reconhecimento **ArcFace** (InsightFace `buffalo_l`) | Não-comercial (pesquisa) | ⚠️ **Requer licença** |
+
+> Os modelos `buffalo_l` (SCRFD + ArcFace) são liberados pela InsightFace **apenas para pesquisa/uso
+> não-comercial**. Para uso comercial, obtenha uma licença com a InsightFace
+> (`recognition-oss-pack@insightface.ai`) **ou** substitua por um modelo de detecção/reconhecimento
+> com licença compatível. A arquitetura é agnóstica ao modelo — basta apontar outro ONNX em
+> `application.yml`.
 
 ## API
 

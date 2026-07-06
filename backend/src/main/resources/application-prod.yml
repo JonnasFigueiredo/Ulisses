@@ -1,0 +1,23 @@
+# Perfil de PRODUCAO — ative com SPRING_PROFILES_ACTIVE=prod
+# Endurece a configuracao de desenvolvimento: segredos obrigatorios, console de banco desligado,
+# CORS restrito e criptografia dos templates biometricos exigida.
+
+spring:
+  h2:
+    console:
+      enabled: false
+  jpa:
+    hibernate:
+      # Em producao prefira migrar o schema com ferramenta dedicada (Flyway/Liquibase) e usar validate.
+      ddl-auto: update
+
+ulisses:
+  jwt:
+    # OBRIGATORIO em producao — a aplicacao nao sobe sem ULISSES_JWT_SECRET definido.
+    secret: ${ULISSES_JWT_SECRET}
+  crypto:
+    # OBRIGATORIO em producao — cifra os templates biometricos em repouso.
+    key: ${ULISSES_CRYPTO_KEY}
+  cors:
+    # OBRIGATORIO em producao — defina as origens exatas do seu frontend/app.
+    allowed-origins: ${ULISSES_CORS_ORIGINS}

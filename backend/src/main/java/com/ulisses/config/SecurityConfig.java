@@ -2,7 +2,9 @@ package com.ulisses.config;
 
 import com.ulisses.auth.JwtAuthFilter;
 import jakarta.servlet.http.HttpServletResponse;
+import java.util.Arrays;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -48,14 +50,17 @@ public class SecurityConfig {
 	}
 
 	/**
-	 * CORS liberado para o app Android (Capacitor): o WebView do aplicativo tem origem propria
-	 * (https://localhost) e acessa o backend pelo IP da maquina na rede local. A autenticacao
-	 * continua protegida por JWT.
+	 * CORS configuravel. Em desenvolvimento o padrao "*" libera o app Android (Capacitor), cujo
+	 * WebView tem origem propria e acessa o backend pelo IP da rede local. Em producao, defina
+	 * ulisses.cors.allowed-origins com a lista exata de origens permitidas. A autenticacao segue
+	 * protegida por JWT independentemente do CORS.
 	 */
 	@Bean
-	public CorsConfigurationSource corsConfigurationSource() {
+	public CorsConfigurationSource corsConfigurationSource(
+			@Value("${ulisses.cors.allowed-origins:*}") String allowedOrigins) {
 		CorsConfiguration config = new CorsConfiguration();
-		config.setAllowedOriginPatterns(List.of("*"));
+		config.setAllowedOriginPatterns(
+				Arrays.stream(allowedOrigins.split(",")).map(String::trim).toList());
 		config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
 		config.setAllowedHeaders(List.of("*"));
 		UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
