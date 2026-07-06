@@ -21,6 +21,32 @@ docker compose up --build
 
 Abra **http://localhost:5173** (a câmera funciona em `localhost` sem HTTPS). No primeiro start o backend baixa os modelos ONNX (~185 MB) uma única vez. Para produção, `cp .env.example .env` e defina segredos fortes antes de subir.
 
+## Demonstração
+
+> 🎥 **Vídeo do funcionamento — cadastro e validação facial ao vivo**
+>
+> <!-- COMO ADICIONAR O VÍDEO:
+>      1. Edite este README pelo site do GitHub (ou abra uma issue), arraste o arquivo de vídeo
+>         para o editor e o GitHub gera um link https://github.com/user-attachments/assets/...
+>      2. Cole esse link no lugar da linha abaixo. -->
+>
+> _🚧 Espaço reservado para a demonstração em vídeo (cadastro por vídeo + validação com prova de vida)._
+
+### Telas
+
+| Login | Início |
+|:---:|:---:|
+| ![Login](docs/screenshots/login-light.png) | ![Início](docs/screenshots/home-light.png) |
+
+**Tema claro/escuro** (respeita a preferência do sistema) e layout **responsivo**:
+
+| Login (escuro) | Início (escuro) | Mobile |
+|:---:|:---:|:---:|
+| ![Login escuro](docs/screenshots/login-dark.png) | ![Início escuro](docs/screenshots/home-dark.png) | <img src="docs/screenshots/home-mobile.png" width="220" alt="Mobile"> |
+
+> As telas de **captura por vídeo** (cadastro e validação, com o oval-guia, a prova de vida e o
+> anti-spoofing em ação) aparecem no vídeo acima — elas exigem câmera ao vivo.
+
 ## Como funciona
 
 | Etapa | Tecnologia |
