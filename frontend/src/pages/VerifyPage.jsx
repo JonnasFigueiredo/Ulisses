@@ -248,8 +248,17 @@ export default function VerifyPage() {
                 <span className={`check-icon ${result.liveness ? 'ok' : 'fail'}`}>
                   {result.liveness ? <IconCheck size={17} /> : <IconX size={17} />}
                 </span>
-                Prova de vida: {result.livenessDetail}
+                Prova de vida (movimento): {result.livenessDetail}
               </li>
+              {result.passiveEvaluated && (
+                <li>
+                  <span className={`check-icon ${result.passivePassed ? 'ok' : 'fail'}`}>
+                    {result.passivePassed ? <IconCheck size={17} /> : <IconX size={17} />}
+                  </span>
+                  Anti-spoofing (textura): {(result.passiveScore * 100).toFixed(0)}% de liveness
+                  {result.passivePassed ? '' : ' — possivel foto ou tela'}
+                </li>
+              )}
             </ul>
             <div className="actions">
               <button type="button" className="btn primary" onClick={start}>

@@ -26,6 +26,10 @@ public class VerificationAttempt {
 	@Column(nullable = false)
 	private boolean livenessPassed;
 
+	/** Score de liveness passiva (anti-spoofing); 1.0 quando nao avaliado. */
+	@Column(nullable = false)
+	private double passiveScore = 1.0;
+
 	@Column(nullable = false)
 	private boolean success;
 
@@ -58,6 +62,14 @@ public class VerificationAttempt {
 
 	public void setLivenessPassed(boolean livenessPassed) {
 		this.livenessPassed = livenessPassed;
+	}
+
+	public double getPassiveScore() {
+		return passiveScore;
+	}
+
+	public void setPassiveScore(double passiveScore) {
+		this.passiveScore = passiveScore;
 	}
 
 	public boolean isSuccess() {

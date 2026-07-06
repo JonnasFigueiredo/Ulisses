@@ -52,3 +52,15 @@ ulisses:
     # ou foco ruim sao descartados; rostos nitidos de webcam ficam bem acima de 100.
     min-sharpness: 40
     challenge-ttl-seconds: 120
+    # Liveness PASSIVA (anti-spoofing por textura) — ensemble MiniFASNet / Silent-Face (Apache-2.0).
+    # Segunda camada alem da prova de vida ativa (giro de cabeca). Detecta foto/tela pela textura.
+    # IMPORTANTE: threshold e live-class-index PRECISAM ser calibrados contra um dataset real de
+    # ataques com o harness (PadEvaluationTest). Isto NAO substitui certificacao ISO 30107-3.
+    passive-liveness:
+      enabled: true
+      model-v2-url: https://github.com/yakhyo/face-anti-spoofing/releases/download/weights/MiniFASNetV2.onnx
+      model-v1se-url: https://github.com/yakhyo/face-anti-spoofing/releases/download/weights/MiniFASNetV1SE.onnx
+      # Indice da classe "vivo" no softmax de 3 posicoes (determinado empiricamente; calibre com o harness)
+      live-class-index: 2
+      # Score minimo de liveness passiva (mediana entre os frames frontais) para aceitar
+      threshold: 0.55

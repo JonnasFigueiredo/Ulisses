@@ -87,8 +87,8 @@ public class FaceService {
 				!templates.isEmpty(), enrolledAt, templates.size(), engine.getStatus().name());
 	}
 
-	/** Frame processado: embedding + pose estimada. */
-	private record ProcessedFrame(String phase, float[] embedding, float noseRatio) {}
+	/** Frame processado: embedding + pose estimada + score de liveness passiva (1 = nao avaliado). */
+	private record ProcessedFrame(String phase, float[] embedding, float noseRatio, double passiveScore) {}
 
 	/** Resultado do processamento com contadores de descarte para mensagens de erro precisas. */
 	private record ProcessResult(List<ProcessedFrame> frames, int multiFace, int blurry) {}
@@ -102,7 +102,7 @@ public class FaceService {
 		// gerar um template de qualidade; nos giros a exigencia nao se aplica (a distancia
 		// interocular projetada encolhe naturalmente com a rotacao da cabeca).
 		ProcessResult processResult =
-				processFrames(frames, phases, properties.minEnrollInterocular());
+				processFrames(frames, phases, properties.minEnrollInterocular(), false);
 		List<ProcessedFrame> processed = processResult.frames();
 
 		Map<String, List<ProcessedFrame>> byPhase = new HashMap<>();
@@ -156,7 +156,7 @@ public class FaceService {
 				.map(FaceTemplate::getEmbeddingVector)
 				.toList();
 
-		ProcessResult processResult = processFrames(frames, phases, 0);
+		ProcessResult processResult = processFrames(frames, phases, 0, true);
 		List<ProcessedFrame> processed = processResult.frames();
 		List<ProcessedFrame> straight = processed.stream()
 				.filter(f -> "STRAIGHT".equals(f.phase()))
@@ -174,24 +174,36 @@ public class FaceService {
 				.toArray());
 		boolean match = similarity >= properties.matchThreshold();
 
-		// 2) Prova de vida: os DOIS movimentos sorteados precisam ser executados na ordem,
+		// 2) Prova de vida ATIVA: os DOIS movimentos sorteados precisam ser executados na ordem,
 		// com trajetoria continua e mantendo a mesma identidade
 		LivenessCheck liveness =
 				checkLiveness(challenge.sequence(), straight, processed, templateVectors);
 
-		boolean success = match && liveness.passed();
+		// 3) Prova de vida PASSIVA (anti-spoofing por textura): mediana dos frames frontais.
+		// Segunda camada; quando desabilitada, nao bloqueia (score neutro 1.0).
+		boolean passiveEvaluated = engine.isPassiveLivenessEnabled();
+		double passiveThreshold = properties.passiveLiveness().threshold();
+		double passiveScore = passiveEvaluated
+				? median(straight.stream().mapToDouble(ProcessedFrame::passiveScore).toArray())
+				: 1.0;
+		boolean passivePassed = !passiveEvaluated || passiveScore >= passiveThreshold;
+
+		boolean success = match && liveness.passed() && passivePassed;
 		VerificationAttempt attempt = new VerificationAttempt();
 		attempt.setUserId(user.getId());
 		attempt.setSimilarity(round(similarity));
 		attempt.setLivenessPassed(liveness.passed());
+		attempt.setPassiveScore(round(passiveScore));
 		attempt.setSuccess(success);
 		attemptRepository.save(attempt);
 
 		log.info(
-				"Validacao do usuario {}: similaridade={}, liveness={}, sucesso={}",
+				"Validacao do usuario {}: similaridade={}, liveness_ativa={}, liveness_passiva={} (score={}), sucesso={}",
 				user.getUsername(),
 				String.format(Locale.ROOT, "%.3f", similarity),
 				liveness.passed(),
+				passivePassed,
+				String.format(Locale.ROOT, "%.3f", passiveScore),
 				success);
 		return new VerifyResult(
 				success,
@@ -200,6 +212,10 @@ public class FaceService {
 				properties.matchThreshold(),
 				liveness.passed(),
 				liveness.detail(),
+				passiveEvaluated,
+				passivePassed,
+				round(passiveScore),
+				passiveThreshold,
 				processed.size());
 	}
 
@@ -348,13 +364,17 @@ public class FaceService {
 	 *   cabeca encolhe a distancia interocular projetada.
 	 */
 	private ProcessResult processFrames(
-			List<MultipartFile> frames, List<String> phases, int minStraightInterocular) {
+			List<MultipartFile> frames,
+			List<String> phases,
+			int minStraightInterocular,
+			boolean computePassive) {
 		if (frames == null || frames.isEmpty()) {
 			throw ApiException.badRequest("Nenhum frame recebido");
 		}
 		if (phases == null || phases.size() != frames.size()) {
 			throw ApiException.badRequest("Cada frame precisa da fase de captura correspondente");
 		}
+		boolean passive = computePassive && engine.isPassiveLivenessEnabled();
 		List<ProcessedFrame> processed = new ArrayList<>();
 		int multiFace = 0;
 		int blurry = 0;
@@ -381,8 +401,12 @@ public class FaceService {
 				blurry++;
 				continue;
 			}
+			// Liveness passiva so nos frames frontais (rosto de frente da a leitura de textura mais fiel)
+			double passiveScore = (passive && "STRAIGHT".equals(phase))
+					? engine.passiveLivenessScore(image, detection)
+					: 1.0;
 			float[] embedding = engine.embedAligned(aligned);
-			processed.add(new ProcessedFrame(phase, embedding, detection.noseRatio()));
+			processed.add(new ProcessedFrame(phase, embedding, detection.noseRatio(), passiveScore));
 		}
 		return new ProcessResult(processed, multiFace, blurry);
 	}

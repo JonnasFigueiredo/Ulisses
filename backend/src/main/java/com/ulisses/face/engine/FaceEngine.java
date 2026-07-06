@@ -37,6 +37,7 @@ public class FaceEngine {
 	private volatile String errorMessage;
 	private volatile FaceDetector detector;
 	private volatile FaceEmbedder embedder;
+	private volatile PassiveLivenessDetector passiveDetector;
 
 	public FaceEngine(FaceProperties properties) {
 		this.properties = properties;
@@ -58,6 +59,17 @@ public class FaceEngine {
 					modelsDir, "arcface_w600k_r50.onnx", properties.recognitionModelUrl());
 			this.detector = new FaceDetector(env, detectionModel, 0.5f);
 			this.embedder = new FaceEmbedder(env, recognitionModel);
+
+			FaceProperties.PassiveLiveness passive = properties.passiveLiveness();
+			if (passive != null && passive.enabled()) {
+				Path padV2 = ModelStore.ensureModel(modelsDir, "minifasnet_v2.onnx", passive.modelV2Url());
+				Path padV1se =
+						ModelStore.ensureModel(modelsDir, "minifasnet_v1se.onnx", passive.modelV1seUrl());
+				this.passiveDetector =
+						new PassiveLivenessDetector(env, padV2, padV1se, passive.liveClassIndex());
+				log.info("Liveness passiva (anti-spoofing MiniFASNet) carregada");
+			}
+
 			this.status = Status.READY;
 			log.info("Engine de reconhecimento facial pronta (execucao 100% local via ONNX Runtime)");
 		} catch (Exception e) {
@@ -98,6 +110,19 @@ public class FaceEngine {
 		return embedder.embed(alignedFace);
 	}
 
+	public boolean isPassiveLivenessEnabled() {
+		return passiveDetector != null;
+	}
+
+	/** Pontuacao de liveness passiva em [0,1] (1 = provavelmente vivo). */
+	public double passiveLivenessScore(BufferedImage image, Detection detection) {
+		ensureReady();
+		if (passiveDetector == null) {
+			throw new IllegalStateException("Liveness passiva desabilitada");
+		}
+		return passiveDetector.score(image, detection);
+	}
+
 	private void ensureReady() {
 		switch (status) {
 			case READY -> {}
@@ -116,6 +141,9 @@ public class FaceEngine {
 			}
 			if (embedder != null) {
 				embedder.close();
+			}
+			if (passiveDetector != null) {
+				passiveDetector.close();
 			}
 		} catch (Exception e) {
 			log.warn("Erro ao liberar sessoes ONNX", e);

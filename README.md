@@ -9,7 +9,8 @@ Sistema de cadastro e validação de biometria facial por vídeo, com **reconhec
 | Detecção facial + landmarks | **SCRFD (det_10g)** — detector do InsightFace, estado da arte em detecção facial |
 | Alinhamento facial | Transformação de similaridade (**Umeyama**) para o template canônico 112×112 |
 | Reconhecimento | **ArcFace (w600k_r50)** — embeddings de 512 dimensões, comparados por similaridade de cosseno |
-| Prova de vida (liveness) | **Desafio ativo duplo**: o servidor sorteia uma sequência de DOIS movimentos de cabeça que precisam ser executados ao vivo, na ordem (vídeo gravado: 25% de chance de acertar); desafio de uso único, expira em 2 minutos, com **análise de trajetória** (movimento precisa ser contínuo, sem saltos de troca de foto/vídeo) e verificação de identidade contínua durante os giros |
+| Prova de vida ATIVA | **Desafio ativo duplo**: o servidor sorteia uma sequência de DOIS movimentos de cabeça que precisam ser executados ao vivo, na ordem (vídeo gravado: 25% de chance de acertar); desafio de uso único, expira em 2 minutos, com **análise de trajetória** (movimento precisa ser contínuo, sem saltos de troca de foto/vídeo) e verificação de identidade contínua durante os giros |
+| Prova de vida PASSIVA | **Anti-spoofing por textura** via ensemble **MiniFASNet** (Silent-Face, Apache-2.0): segunda camada que analisa a textura ao redor do rosto para detectar foto impressa ou tela. Roda local, junto do reconhecimento. **Precisa ser calibrado/validado** (ver seção de PAD abaixo) |
 | Captura guiada por pose | Durante cadastro e validação, cada frame passa por checagem de pose em tempo real (`/api/face/pose`); a captura **só avança quando o usuário executa a pose pedida**, e o servidor revalida os giros no ato do cadastro |
 | Qualidade e antifraude | Nitidez mínima por variância do Laplaciano (descarta frames borrados), rejeição de frames com **mais de uma pessoa** no quadro, e **rate limiting** de 6 validações/minuto por usuário |
 | Inferência | **ONNX Runtime** rodando em CPU, embarcado no backend Java |
@@ -80,6 +81,31 @@ O sistema segue os referenciais internacionais de biometria facial:
 - **Qualidade de cadastro (ISO/IEC 19794-5)** — os frames frontais do cadastro exigem **distância interocular ≥ 60 px**, garantindo resolução suficiente do template; a interface orienta o usuário a se aproximar da câmera quando necessário.
 - **Prova de vida ativa (ISO/IEC 30107)** — desafio dinâmico de uso único sorteado pelo servidor; ≥ 60% dos frames do giro precisam confirmar o movimento na direção sorteada, com verificação de identidade contínua durante o movimento.
 
+## Prova de vida passiva (anti-spoofing) e calibração
+
+O sistema tem **duas camadas de liveness**: a ativa (giro de cabeça, já validada e determinística) e a passiva (anti-spoofing por textura, MiniFASNet). A passiva é uma aproximação séria do que se espera de um sistema antifraude, mas com uma ressalva honesta e importante:
+
+> ⚠️ **Isto NÃO é uma solução certificada ISO/IEC 30107-3.** A certificação é feita por laboratório acreditado (ex.: iBeta), com instrumentos de ataque padronizados, e não pode ser substituída por código. A camada passiva aqui **precisa ser calibrada e ter a eficácia validada contra um dataset real de ataques** antes de ser tratada como proteção confiável.
+
+### Harness de medição (ISO/IEC 30107-3)
+
+O projeto inclui um avaliador que calcula as métricas oficiais — **APCER** (ataques aceitos como reais), **BPCER** (reais rejeitados) e **ACER** (média) — varrendo limiares para encontrar o ponto ótimo. Monte um dataset rotulado:
+
+```
+dataset/
+  bonafide/   *.jpg   (rostos reais capturados ao vivo)
+  attack/     *.jpg   (fotos impressas, telas/replay, máscaras, etc.)
+```
+
+E rode:
+
+```bash
+cd backend
+mvnw test -Dtest=PadEvaluationTest -Dpad.dataset=/caminho/do/dataset -Dpad.models=./models
+```
+
+Ele imprime a tabela APCER/BPCER/ACER por limiar e sugere o melhor `threshold`. Ajuste então `ulisses.face.passive-liveness.threshold` (e, se necessário, `live-class-index`) conforme o resultado. **Enquanto não calibrado com dados reais, trate a camada passiva como "melhor esforço", não como garantia.**
+
 ## Configuração
 
 Principais chaves em `backend/src/main/resources/application.yml`:
@@ -91,6 +117,9 @@ Principais chaves em `backend/src/main/resources/application.yml`:
 | `ulisses.face.min-face-size` | `80` | Tamanho mínimo do rosto em pixels |
 | `ulisses.face.min-enroll-interocular` | `60` | Distância interocular mínima (px) nos frames frontais do cadastro |
 | `ulisses.face.min-sharpness` | `40` | Nitidez mínima do rosto alinhado (variância do Laplaciano) |
+| `ulisses.face.passive-liveness.enabled` | `true` | Liga a camada de anti-spoofing por textura (MiniFASNet) |
+| `ulisses.face.passive-liveness.threshold` | `0.55` | Score mínimo de liveness passiva (calibre com o harness) |
+| `ulisses.face.passive-liveness.live-class-index` | `2` | Índice da classe "vivo" no softmax do modelo (calibre com o harness) |
 | `ulisses.jwt.secret` | dev | **Defina `ULISSES_JWT_SECRET` em produção** |
 
 Console do H2 (dev): `http://localhost:8080/h2-console` — JDBC `jdbc:h2:file:./data/ulisses`, usuário `sa`, senha vazia.

@@ -42,6 +42,10 @@ public final class FaceDtos {
 			double threshold,
 			boolean liveness,
 			String livenessDetail,
+			boolean passiveEvaluated,
+			boolean passivePassed,
+			double passiveScore,
+			double passiveThreshold,
 			int framesUsed) {}
 
 	public record AttemptDto(Instant createdAt, double similarity, boolean liveness, boolean success) {

@@ -72,8 +72,9 @@ class FaceServiceTest {
 				80, // minFaceSize
 				60, // minEnrollInterocular
 				40, // minSharpness
-				120 // challengeTtlSeconds
-				);
+				120, // challengeTtlSeconds
+				// liveness passiva desabilitada nos testes unitarios (engine mockado)
+				new FaceProperties.PassiveLiveness(false, null, null, 2, 0.55));
 		challengeService = new ChallengeService(props);
 		faceService = new FaceService(engine, props, templateRepo, attemptRepo, challengeService);
 
@@ -191,6 +192,38 @@ class FaceServiceTest {
 		assertTrue(result.match()); // identidade confere
 		assertFalse(result.liveness()); // mas nao houve giro
 		assertFalse(result.success());
+	}
+
+	@Test
+	@DisplayName("validacao com liveness passiva BAIXA (spoof) e recusada mesmo com rosto correto")
+	void verifyRejectedByPassiveLiveness() {
+		enrollBaseline();
+		when(engine.isPassiveLivenessEnabled()).thenReturn(true);
+		when(engine.passiveLivenessScore(any(), any())).thenReturn(0.20); // abaixo do limiar 0.55
+		Challenge challenge = challengeService.create(1L);
+
+		VerifyResult result = runVerify(challenge, FACE_A, true);
+
+		assertTrue(result.match()); // identidade confere
+		assertTrue(result.liveness()); // movimento confere
+		assertTrue(result.passiveEvaluated());
+		assertFalse(result.passivePassed()); // textura reprovou (foto/tela)
+		assertFalse(result.success());
+	}
+
+	@Test
+	@DisplayName("validacao com liveness passiva ALTA (rosto vivo) e aprovada")
+	void verifyAcceptedWithHighPassiveLiveness() {
+		enrollBaseline();
+		when(engine.isPassiveLivenessEnabled()).thenReturn(true);
+		when(engine.passiveLivenessScore(any(), any())).thenReturn(0.95); // acima do limiar
+		Challenge challenge = challengeService.create(1L);
+
+		VerifyResult result = runVerify(challenge, FACE_A, true);
+
+		assertTrue(result.passiveEvaluated());
+		assertTrue(result.passivePassed());
+		assertTrue(result.success());
 	}
 
 	@Test
