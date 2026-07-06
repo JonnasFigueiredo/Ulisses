@@ -12,6 +12,8 @@ import {
   IconTrash,
   IconX,
 } from '../components/Icons.jsx';
+import ThemeToggle from '../components/ThemeToggle.jsx';
+import HelmetMark from '../components/HelmetMark.jsx';
 
 function formatDate(iso) {
   return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
@@ -56,10 +58,11 @@ export default function HomePage() {
     <div className="page">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">U</span>
+          <span className="brand-mark"><HelmetMark size={26} /></span>
           <h1>Ulisses</h1>
         </div>
         <div className="topbar-user">
+          <ThemeToggle />
           <span className="avatar">{user.name.trim().charAt(0).toUpperCase()}</span>
           <span className="muted">Ola, {user.name.split(' ')[0]}</span>
           <button type="button" className="btn ghost small" onClick={logout}>

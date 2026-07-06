@@ -6,11 +6,14 @@
   --bg: #f7f5fb;
   --card: #ffffff;
   --card-border: #eceaf3;
+  --surface-2: #f0eef6;
+  --surface-input: #faf9fd;
   --text: #221e2e;
   --muted: #6f697f;
   --primary: #7a1fd1;
   --primary-strong: #6614b8;
   --primary-soft: #f3e9fd;
+  --primary-soft-hover: #eadcfa;
   --ok: #0e9d5b;
   --ok-soft: #e5f7ee;
   --warn: #b96e00;
@@ -19,6 +22,27 @@
   --fail-soft: #fdecf1;
   --shadow: 0 8px 28px rgba(46, 26, 82, 0.08);
   --radius: 22px;
+}
+
+:root[data-theme='dark'] {
+  --bg: #0f0d17;
+  --card: #1a1725;
+  --card-border: #2b2740;
+  --surface-2: #241f33;
+  --surface-input: #201b30;
+  --text: #f0eef7;
+  --muted: #9b93b4;
+  --primary: #a970ff;
+  --primary-strong: #9257f5;
+  --primary-soft: #271d3d;
+  --primary-soft-hover: #33265099;
+  --ok: #3ad693;
+  --ok-soft: #14301f;
+  --warn: #f2b552;
+  --warn-soft: #33280f;
+  --fail: #ff6b8a;
+  --fail-soft: #331520;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
 html,
@@ -219,7 +243,7 @@ body {
   text-decoration: none;
   text-align: center;
   color: var(--text);
-  background: #f0eef6;
+  background: var(--surface-2);
   transition: background 0.15s, border-color 0.15s, transform 0.06s, box-shadow 0.15s;
 }
 
@@ -248,7 +272,7 @@ body {
 }
 
 .btn.secondary:hover:not(:disabled) {
-  background: #eadcfa;
+  background: var(--primary-soft-hover);
 }
 
 .btn.ghost {
@@ -258,8 +282,27 @@ body {
 }
 
 .btn.ghost:hover:not(:disabled) {
-  border-color: #d9d5e6;
+  border-color: var(--muted);
   color: var(--text);
+}
+
+.theme-toggle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1.5px solid var(--card-border);
+  background: var(--surface-2);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.theme-toggle:hover {
+  color: var(--primary);
+  border-color: var(--primary);
 }
 
 .btn.danger-ghost {
@@ -306,7 +349,7 @@ body {
 
 .form input {
   font-family: inherit;
-  background: #faf9fd;
+  background: var(--surface-input);
   border: 1.5px solid var(--card-border);
   border-radius: 14px;
   padding: 13px 16px;
@@ -324,7 +367,13 @@ body {
 .form input:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 4px rgba(122, 31, 209, 0.12);
-  background: #fff;
+  background: var(--card);
+}
+
+.login-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
 }
 
 .auth-card {
@@ -341,7 +390,7 @@ body {
 
 .tabs {
   display: flex;
-  background: #f0eef6;
+  background: var(--surface-2);
   border-radius: 999px;
   padding: 4px;
   gap: 4px;
@@ -362,7 +411,7 @@ body {
 }
 
 .tab.active {
-  background: #fff;
+  background: var(--card);
   color: var(--primary);
   box-shadow: 0 2px 8px rgba(46, 26, 82, 0.12);
 }
@@ -561,7 +610,7 @@ body {
   align-items: center;
   gap: 14px;
   padding: 13px 16px;
-  background: #faf9fd;
+  background: var(--surface-input);
   border: 1px solid var(--card-border);
   border-radius: 16px;
 }

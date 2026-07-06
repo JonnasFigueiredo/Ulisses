@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import { getServerUrl, isNativeApp, setServerUrl } from '../api.js';
+import ThemeToggle from '../components/ThemeToggle.jsx';
+import HelmetMark from '../components/HelmetMark.jsx';
 
 export default function LoginPage() {
   const { user, login, register } = useAuth();
@@ -41,9 +43,12 @@ export default function LoginPage() {
 
   return (
     <div className="page center">
+      <div className="login-toggle">
+        <ThemeToggle />
+      </div>
       <div className="card auth-card">
         <div className="brand">
-          <span className="brand-mark">U</span>
+          <span className="brand-mark"><HelmetMark size={28} /></span>
           <div>
             <h1>Ulisses</h1>
             <p className="auth-headline">Sua identidade, verificada pelo seu rosto.</p>

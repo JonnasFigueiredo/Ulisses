@@ -17,7 +17,8 @@ Sistema de cadastro e validação de biometria facial por vídeo, com **reconhec
 Fluxo do usuário: criar conta / login → **cadastro facial por vídeo** (captura guiada em 3 poses) → **validação por vídeo** com prova de vida.
 
 - Os modelos ONNX (~180 MB) são baixados automaticamente **uma única vez** no primeiro start do backend, para a pasta `backend/models/`. Depois disso o sistema funciona offline.
-- Backend: Java 21 + Spring Boot 3.5 (JWT, JPA/H2). Frontend: React 18 + Vite, responsivo (webcam no desktop, câmera frontal no celular).
+- Backend: Java 21 + Spring Boot 3.5 (JWT, JPA/H2). Frontend: React 18 + Vite, responsivo (webcam no desktop, câmera frontal no celular), com **tema claro/escuro** (respeita a preferência do sistema e permite alternar).
+- Identidade visual: o ícone é um **elmo coríntio** (capacete do herói grego que dá nome ao sistema). As artes-fonte ficam em `frontend/assets/`; os ícones do Android são gerados com `npx @capacitor/assets generate --android`.
 
 ## Requisitos
 
