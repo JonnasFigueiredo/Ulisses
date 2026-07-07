@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import {
   average,
+  challengeDeviation,
   collectPosedFrames,
+  DIRECTIONS,
   positionIssue,
   STRAIGHT_RANGE,
   TURN_DEVIATION,
@@ -73,34 +75,33 @@ export default function VerifyPage() {
           timeout: 'Nao conseguimos detectar o rosto a tempo. Verifique a iluminacao e tente novamente.',
         },
       });
-      const baseline = average(straight.ratios);
+      // Linhas de base da pose neutra (yaw e pitch) do proprio usuario
+      const baselines = { h: average(straight.ratios), v: average(straight.verticals) };
 
-      // Desafios: cada giro so conta quando detectado na direcao sorteada, na ordem
+      // Desafios: cada movimento so conta quando detectado na direcao sorteada, na ordem
       const allFrames = [...straight.frames];
       const allPhases = straight.frames.map(() => 'STRAIGHT');
       for (let i = 0; i < challenge.directions.length; i++) {
         const dir = challenge.directions[i];
-        const dirLabel = dir === 'LEFT' ? 'ESQUERDA' : 'DIREITA';
+        const info = DIRECTIONS[dir];
         setTurnIndex(i);
         setStep('turn');
         setLive({ ok: false, message: 'Prepare-se...', progress: 0 });
-        // pequena pausa para o usuario voltar ao centro entre um giro e outro
+        // pequena pausa para o usuario voltar ao centro entre um movimento e outro
         if (i > 0) await sleep(900);
         const turn = await collectPosedFrames(videoRef.current, {
           count: 6,
           isPoseOk: (p) =>
             positionIssue(p, { strict: false }) == null &&
-            (dir === 'LEFT'
-              ? p.noseRatio - baseline >= TURN_DEVIATION
-              : baseline - p.noseRatio >= TURN_DEVIATION),
+            challengeDeviation(p, dir, baselines) >= TURN_DEVIATION,
           onUpdate: setLive,
           timeoutMs: 30000,
           messages: {
-            noFace: 'Rosto nao detectado — mantenha o rosto visivel durante o giro',
+            noFace: 'Rosto nao detectado — mantenha o rosto visivel durante o movimento',
             adjust: (p) =>
               positionIssue(p, { strict: false }) ||
-              `Vire mais o rosto para a ${dirLabel} e segure`,
-            holding: 'Isso! Mantenha o giro',
+              `${info.verb} ${info.label} e segure`,
+            holding: 'Isso! Mantenha a pose',
             timeout: 'O movimento de cabeca nao foi confirmado a tempo. Tente novamente.',
           },
         });
@@ -128,9 +129,7 @@ export default function VerifyPage() {
     }
   }
 
-  const currentDirection = directions[turnIndex];
-  const directionLabel = currentDirection === 'LEFT' ? 'ESQUERDA' : 'DIREITA';
-  const directionArrow = currentDirection === 'LEFT' ? '←' : '→';
+  const currentDirection = DIRECTIONS[directions[turnIndex]] || DIRECTIONS.LEFT;
 
   return (
     <div className="page">
@@ -182,7 +181,8 @@ export default function VerifyPage() {
               {step === 'turn' && (
                 <div className="instruction-bar challenge">
                   <strong>
-                    {directionArrow} Vire o rosto para a {directionLabel} {directionArrow}
+                    {currentDirection.arrow} {currentDirection.verb} {currentDirection.label}{' '}
+                    {currentDirection.arrow}
                   </strong>
                   <span className={live.ok ? 'status-msg ok' : 'status-msg warn'}>
                     {live.message}
@@ -212,9 +212,10 @@ export default function VerifyPage() {
             <h2>Validacao com prova de vida</h2>
             <p className="muted">
               Alem de comparar seu rosto com a biometria cadastrada, o sistema sorteia uma sequencia de
-              DOIS movimentos de cabeca que devem ser executados ao vivo, na ordem — fotos e videos
-              gravados nao passam. Cada movimento e verificado em tempo real: a barra so avanca quando
-              voce gira o rosto de verdade.
+              DOIS movimentos de cabeca entre QUATRO direcoes (esquerda, direita, cima e baixo) que
+              devem ser executados ao vivo, na ordem — fotos e videos gravados nao passam. Cada
+              movimento e verificado em tempo real: a barra so avanca quando voce move o rosto de
+              verdade.
             </p>
             <button
               type="button"

@@ -16,15 +16,18 @@ import org.springframework.stereotype.Service;
 @Service
 public class ChallengeService {
 
+	/** LEFT/RIGHT: giro de cabeca (eixo yaw). UP/DOWN: inclinacao (eixo pitch). */
 	public enum Direction {
 		LEFT,
-		RIGHT
+		RIGHT,
+		UP,
+		DOWN
 	}
 
 	/**
-	 * Sequencia de DOIS movimentos sorteados de forma independente: um video gravado teria de
-	 * acertar as duas direcoes na ordem certa (25% de chance), alem de vencer a analise de
-	 * trajetoria e a expiracao curta.
+	 * Sequencia de DOIS movimentos sorteados de forma independente entre QUATRO direcoes
+	 * (esquerda, direita, cima, baixo): um video gravado teria de acertar as duas direcoes na
+	 * ordem certa — 1 chance em 16 (~6%) — alem de vencer a analise de trajetoria e a expiracao.
 	 */
 	public record Challenge(String id, Long userId, List<Direction> sequence, Instant expiresAt) {}
 
@@ -40,12 +43,13 @@ public class ChallengeService {
 		cleanupExpired();
 		// Um desafio ativo por usuario
 		active.values().removeIf(c -> c.userId().equals(userId));
+		Direction[] directions = Direction.values();
 		Challenge challenge = new Challenge(
 				UUID.randomUUID().toString(),
 				userId,
 				List.of(
-						random.nextBoolean() ? Direction.LEFT : Direction.RIGHT,
-						random.nextBoolean() ? Direction.LEFT : Direction.RIGHT),
+						directions[random.nextInt(directions.length)],
+						directions[random.nextInt(directions.length)]),
 				Instant.now().plusSeconds(properties.challengeTtlSeconds()));
 		active.put(challenge.id(), challenge);
 		return challenge;

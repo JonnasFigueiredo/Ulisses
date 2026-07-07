@@ -50,6 +50,24 @@ public record Detection(float score, float x1, float y1, float x2, float y2, flo
 		return Math.max(-1f, Math.min(2f, ratio));
 	}
 
+	/**
+	 * Posicao vertical relativa do nariz entre a linha dos olhos (0) e a linha da boca (1).
+	 * ~0.5 com o rosto neutro; inclinar a cabeca para CIMA projeta o nariz em direcao aos olhos
+	 * (ratio diminui) e para BAIXO em direcao a boca (ratio aumenta). Usado nos desafios verticais
+	 * da prova de vida — sempre comparado a linha de base do proprio usuario, o que neutraliza o
+	 * angulo da camera (webcam abaixo/acima do rosto).
+	 */
+	public float noseVerticalRatio() {
+		float eyeMidY = (kps[1] + kps[3]) / 2f;
+		float mouthMidY = (kps[7] + kps[9]) / 2f;
+		float span = mouthMidY - eyeMidY;
+		if (Math.abs(span) < 1e-3f) {
+			return 0.5f;
+		}
+		float ratio = (kps[5] - eyeMidY) / span;
+		return Math.max(-1f, Math.min(2f, ratio));
+	}
+
 	/** Distancia interocular em pixels — metrica de qualidade/resolucao do rosto (ISO/IEC 19794-5). */
 	public float interocular() {
 		float dx = kps[2] - kps[0];

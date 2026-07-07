@@ -28,6 +28,7 @@ public final class FaceDtos {
 	public record PoseResponse(
 			boolean faceDetected,
 			double noseRatio,
+			double noseVertical,
 			double interocular,
 			boolean enrollQuality,
 			double centerX,

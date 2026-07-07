@@ -39,6 +39,30 @@ class DetectionTest {
 		assertEquals(100f, withNose(50).interocular(), 1e-4);
 	}
 
+	/** kps com nariz em altura configuravel (olhos y=100, boca y=160). */
+	private static Detection withNoseY(float noseY) {
+		float[] kps = {0, 100, 100, 100, 50, noseY, 30, 160, 70, 160};
+		return new Detection(0.9f, 0, 50, 200, 250, kps);
+	}
+
+	@Test
+	@DisplayName("nariz no meio entre olhos e boca da noseVerticalRatio ~0.5")
+	void noseVerticalCenteredGivesHalf() {
+		assertEquals(0.5f, withNoseY(130).noseVerticalRatio(), 1e-4);
+	}
+
+	@Test
+	@DisplayName("inclinar a cabeca para CIMA aproxima o nariz dos olhos (ratio diminui)")
+	void pitchUpDecreasesVerticalRatio() {
+		assertTrue(withNoseY(112).noseVerticalRatio() < 0.5f);
+	}
+
+	@Test
+	@DisplayName("inclinar a cabeca para BAIXO aproxima o nariz da boca (ratio aumenta)")
+	void pitchDownIncreasesVerticalRatio() {
+		assertTrue(withNoseY(148).noseVerticalRatio() > 0.5f);
+	}
+
 	@Test
 	@DisplayName("width, height e area vem da caixa delimitadora")
 	void boxGeometry() {

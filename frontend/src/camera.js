@@ -88,6 +88,7 @@ export async function collectPosedFrames(
 ) {
   const frames = [];
   const ratios = [];
+  const verticals = [];
   const startedAt = Date.now();
 
   while (frames.length < count) {
@@ -105,6 +106,7 @@ export async function collectPosedFrames(
     } else if (isPoseOk(pose)) {
       frames.push(blob);
       ratios.push(pose.noseRatio);
+      verticals.push(pose.noseVertical);
       onUpdate?.({ ok: true, message: messages.holding, progress: frames.length / count });
     } else {
       const adjust =
@@ -113,13 +115,40 @@ export async function collectPosedFrames(
     }
     await sleep(delayMs);
   }
-  return { frames, ratios };
+  return { frames, ratios, verticals };
 }
 
 /** Faixa considerada "olhando para frente" (posicao relativa do nariz entre os olhos). */
 export const STRAIGHT_RANGE = { min: 0.38, max: 0.62 };
-/** Desvio minimo vs a pose frontal para considerar que o rosto foi virado. */
+/** Desvio minimo vs a pose frontal para considerar que o rosto foi movido na direcao pedida. */
 export const TURN_DEVIATION = 0.13;
+
+/** Rotulo, seta e eixo de cada direcao de desafio (LEFT/RIGHT = giro; UP/DOWN = inclinacao). */
+export const DIRECTIONS = {
+  LEFT: { label: 'ESQUERDA', arrow: '←', verb: 'Vire o rosto para a' },
+  RIGHT: { label: 'DIREITA', arrow: '→', verb: 'Vire o rosto para a' },
+  UP: { label: 'CIMA', arrow: '↑', verb: 'Incline o rosto para' },
+  DOWN: { label: 'BAIXO', arrow: '↓', verb: 'Incline o rosto para' },
+};
+
+/**
+ * Desvio assinado da pose atual no eixo do desafio (positivo = na direcao pedida),
+ * medido contra as linhas de base capturadas na fase frontal.
+ */
+export function challengeDeviation(pose, direction, baselines) {
+  switch (direction) {
+    case 'LEFT':
+      return pose.noseRatio - baselines.h;
+    case 'RIGHT':
+      return baselines.h - pose.noseRatio;
+    case 'UP':
+      return baselines.v - pose.noseVertical;
+    case 'DOWN':
+      return pose.noseVertical - baselines.v;
+    default:
+      return 0;
+  }
+}
 
 export const average = (values) => values.reduce((sum, v) => sum + v, 0) / values.length;
 

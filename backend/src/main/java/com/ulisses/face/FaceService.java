@@ -87,8 +87,9 @@ public class FaceService {
 				!templates.isEmpty(), enrolledAt, templates.size(), engine.getStatus().name());
 	}
 
-	/** Frame processado: embedding + pose estimada + score de liveness passiva (1 = nao avaliado). */
-	private record ProcessedFrame(String phase, float[] embedding, float noseRatio, double passiveScore) {}
+	/** Frame processado: embedding + pose (yaw e pitch) + score de liveness passiva (1 = nao avaliado). */
+	private record ProcessedFrame(
+			String phase, float[] embedding, float noseRatio, float noseVertical, double passiveScore) {}
 
 	/** Resultado do processamento com contadores de descarte para mensagens de erro precisas. */
 	private record ProcessResult(List<ProcessedFrame> frames, int multiFace, int blurry) {}
@@ -280,29 +281,52 @@ public class FaceService {
 	public FaceDtos.PoseResponse pose(MultipartFile frame) {
 		BufferedImage image = decode(frame);
 		if (image == null) {
-			return new FaceDtos.PoseResponse(false, 0, 0, false, 0, 0, 0, false);
+			return new FaceDtos.PoseResponse(false, 0, 0, 0, false, 0, 0, 0, false);
 		}
 		return engine.detectMainFace(image)
 				.map(d -> new FaceDtos.PoseResponse(
 						true,
 						round(d.noseRatio()),
+						round(d.noseVerticalRatio()),
 						round(d.interocular()),
 						d.interocular() >= properties.minEnrollInterocular(),
 						round((d.x1() + d.x2()) / 2.0 / image.getWidth()),
 						round((d.y1() + d.y2()) / 2.0 / image.getHeight()),
 						round(d.height() / (double) image.getHeight()),
 						hasSecondFace(image, d)))
-				.orElse(new FaceDtos.PoseResponse(false, 0, 0, false, 0, 0, 0, false));
+				.orElse(new FaceDtos.PoseResponse(false, 0, 0, 0, false, 0, 0, 0, false));
 	}
 
 	private record LivenessCheck(boolean passed, String detail) {}
+
+	/** Desvio assinado da pose no eixo do desafio: positivo quando na direcao pedida. */
+	private static double axisDeviation(ProcessedFrame frame, Direction direction, double hBase, double vBase) {
+		return switch (direction) {
+			// Sem espelhamento: girar para a PROPRIA esquerda desloca o nariz para a direita da
+			// imagem (yaw ratio aumenta); para a direita, o inverso.
+			case LEFT -> frame.noseRatio() - hBase;
+			case RIGHT -> hBase - frame.noseRatio();
+			// Inclinar para CIMA projeta o nariz em direcao a linha dos olhos (pitch ratio diminui).
+			case UP -> vBase - frame.noseVertical();
+			case DOWN -> frame.noseVertical() - vBase;
+		};
+	}
+
+	/** Valor da pose no eixo relevante do desafio (para a analise de continuidade da trajetoria). */
+	private static float axisValue(ProcessedFrame frame, Direction direction) {
+		return (direction == Direction.LEFT || direction == Direction.RIGHT)
+				? frame.noseRatio()
+				: frame.noseVertical();
+	}
 
 	private LivenessCheck checkLiveness(
 			List<Direction> sequence,
 			List<ProcessedFrame> straight,
 			List<ProcessedFrame> allProcessed,
 			List<float[]> templateVectors) {
-		double baseline = medianNoseRatio(straight);
+		// Linhas de base da pose neutra do PROPRIO usuario (neutraliza o angulo da camera)
+		double hBaseline = medianNoseRatio(straight);
+		double vBaseline = median(straight.stream().mapToDouble(ProcessedFrame::noseVertical).toArray());
 		List<ProcessedFrame> allTurnFrames = new ArrayList<>();
 
 		for (int i = 0; i < sequence.size(); i++) {
@@ -316,12 +340,8 @@ public class FaceService {
 						false, "Movimento " + (i + 1) + " (" + directionLabel(direction) + ") nao detectado");
 			}
 
-			// Nos frames sem espelhamento, girar a cabeca para a PROPRIA esquerda desloca o nariz
-			// para a direita da imagem (ratio aumenta); para a direita, o inverso.
 			long moved = segment.stream()
-					.filter(f -> direction == Direction.LEFT
-							? f.noseRatio() - baseline >= MIN_TURN_DEVIATION
-							: baseline - f.noseRatio() >= MIN_TURN_DEVIATION)
+					.filter(f -> axisDeviation(f, direction, hBaseline, vBaseline) >= MIN_TURN_DEVIATION)
 					.count();
 			if (moved < Math.ceil(segment.size() * MIN_TURN_FRAME_RATIO)) {
 				return new LivenessCheck(
@@ -329,11 +349,12 @@ public class FaceService {
 						"O movimento " + (i + 1) + " (" + directionLabel(direction) + ") nao foi confirmado");
 			}
 
-			// Trajetoria continua: um giro real nao "teleporta" — saltos bruscos do nariz entre
-			// frames consecutivos indicam troca de foto/video no meio da captura
+			// Trajetoria continua no eixo do desafio: um movimento real nao "teleporta" — saltos
+			// bruscos do nariz entre frames consecutivos indicam troca de foto/video no meio
 			for (int j = 1; j < segment.size(); j++) {
-				if (Math.abs(segment.get(j).noseRatio() - segment.get(j - 1).noseRatio()) > MAX_RATIO_JUMP) {
-					return new LivenessCheck(false, "Movimento descontinuo detectado durante o giro");
+				if (Math.abs(axisValue(segment.get(j), direction) - axisValue(segment.get(j - 1), direction))
+						> MAX_RATIO_JUMP) {
+					return new LivenessCheck(false, "Movimento descontinuo detectado durante o desafio");
 				}
 			}
 			allTurnFrames.addAll(segment);
@@ -352,7 +373,12 @@ public class FaceService {
 	}
 
 	private static String directionLabel(Direction direction) {
-		return direction == Direction.LEFT ? "para a esquerda" : "para a direita";
+		return switch (direction) {
+			case LEFT -> "para a esquerda";
+			case RIGHT -> "para a direita";
+			case UP -> "para cima";
+			case DOWN -> "para baixo";
+		};
 	}
 
 	/**
@@ -406,7 +432,8 @@ public class FaceService {
 					? engine.passiveLivenessScore(image, detection)
 					: 1.0;
 			float[] embedding = engine.embedAligned(aligned);
-			processed.add(new ProcessedFrame(phase, embedding, detection.noseRatio(), passiveScore));
+			processed.add(new ProcessedFrame(
+					phase, embedding, detection.noseRatio(), detection.noseVerticalRatio(), passiveScore));
 		}
 		return new ProcessResult(processed, multiFace, blurry);
 	}

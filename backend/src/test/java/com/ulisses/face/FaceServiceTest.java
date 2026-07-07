@@ -121,9 +121,9 @@ class FaceServiceTest {
 	@DisplayName("cadastro sem virar o rosto e recusado")
 	void enrollWithoutHeadTurnIsRejected() {
 		// STRAIGHT + LEFT + RIGHT, porem TODOS frontais (nariz centralizado): nao houve giro.
-		enqueueFrames(0.5, 4, FACE_A);
-		enqueueFrames(0.5, 3, FACE_A);
-		enqueueFrames(0.5, 3, FACE_A);
+		enqueueFrames(0.5, 0.5, 4, FACE_A);
+		enqueueFrames(0.5, 0.5, 3, FACE_A);
+		enqueueFrames(0.5, 0.5, 3, FACE_A);
 		List<MultipartFile> frames = frames(10);
 		List<String> phases = phases("STRAIGHT", 4, "LEFT", 3, "RIGHT", 3);
 
@@ -137,12 +137,12 @@ class FaceServiceTest {
 	@DisplayName("cadastro com mais de uma pessoa no quadro e recusado")
 	void enrollWithMultipleFacesIsRejected() {
 		// Dois rostos grandes detectados em cada frame -> todos descartados por multiface.
-		Detection big1 = detection(0.5, 200);
-		Detection big2 = detection(0.5, 200);
+		Detection big1 = detection(0.5, 0.5, 200);
+		Detection big2 = detection(0.5, 0.5, 200);
 		when(engine.detect(any())).thenReturn(List.of(big1, big2));
-		enqueueFrames(0.5, 4, FACE_A);
-		enqueueFrames(0.66, 3, FACE_A);
-		enqueueFrames(0.34, 3, FACE_A);
+		enqueueFrames(0.5, 0.5, 4, FACE_A);
+		enqueueFrames(0.66, 0.5, 3, FACE_A);
+		enqueueFrames(0.34, 0.5, 3, FACE_A);
 		List<MultipartFile> frames = frames(10);
 		List<String> phases = phases("STRAIGHT", 4, "LEFT", 3, "RIGHT", 3);
 
@@ -191,6 +191,50 @@ class FaceServiceTest {
 
 		assertTrue(result.match()); // identidade confere
 		assertFalse(result.liveness()); // mas nao houve giro
+		assertFalse(result.success());
+	}
+
+	@Test
+	@DisplayName("desafio VERTICAL (cima/baixo) e aprovado quando o usuario inclina a cabeca")
+	void verifyVerticalChallengeSucceeds() {
+		enrollBaseline();
+		// O sorteio e aleatorio entre 4 direcoes; insiste ate a sequencia conter um movimento vertical
+		Challenge challenge = challengeService.create(1L);
+		for (int i = 0; i < 200 && challenge.sequence().stream()
+				.noneMatch(d -> d == Direction.UP || d == Direction.DOWN); i++) {
+			challenge = challengeService.create(1L);
+		}
+		assertTrue(challenge.sequence().stream()
+				.anyMatch(d -> d == Direction.UP || d == Direction.DOWN));
+
+		VerifyResult result = runVerify(challenge, FACE_A, true);
+
+		assertTrue(result.liveness());
+		assertTrue(result.success());
+	}
+
+	@Test
+	@DisplayName("desafio vertical NAO e aprovado por um giro horizontal (eixo errado)")
+	void verticalChallengeRejectsHorizontalMovement() {
+		enrollBaseline();
+		Challenge challenge = challengeService.create(1L);
+		for (int i = 0; i < 200 && challenge.sequence().get(0) != Direction.UP; i++) {
+			challenge = challengeService.create(1L);
+		}
+		assertEquals(Direction.UP, challenge.sequence().get(0));
+
+		// Usuario gira para a esquerda (yaw) quando o desafio pede CIMA (pitch)
+		List<String> phaseLabels = new ArrayList<>();
+		enqueueFrames(0.5, 0.5, 4, FACE_A);
+		for (int i = 0; i < 4; i++) phaseLabels.add("STRAIGHT");
+		for (int i = 0; i < challenge.sequence().size(); i++) {
+			enqueueFrames(0.68, 0.5, 3, FACE_A); // movimento horizontal, pitch neutro
+			for (int j = 0; j < 3; j++) phaseLabels.add("TURN" + (i + 1));
+		}
+		VerifyResult result =
+				faceService.verify(user, challenge.id(), frames(phaseLabels.size()), phaseLabels);
+
+		assertFalse(result.liveness()); // eixo errado: movimento 1 (para cima) nao confirmado
 		assertFalse(result.success());
 	}
 
@@ -247,27 +291,37 @@ class FaceServiceTest {
 
 	/** Cadastro valido padrao: 4 frontais + 3 giros esquerda + 3 giros direita, todos rosto A. */
 	private EnrollResult enrollBaseline() {
-		enqueueFrames(0.5, 4, FACE_A); // STRAIGHT
-		enqueueFrames(0.66, 3, FACE_A); // LEFT: nariz desloca para a direita da imagem
-		enqueueFrames(0.34, 3, FACE_A); // RIGHT: nariz desloca para a esquerda da imagem
+		enqueueFrames(0.5, 0.5, 4, FACE_A); // STRAIGHT
+		enqueueFrames(0.66, 0.5, 3, FACE_A); // LEFT: nariz desloca para a direita da imagem
+		enqueueFrames(0.34, 0.5, 3, FACE_A); // RIGHT: nariz desloca para a esquerda da imagem
 		return faceService.enroll(
 				user, frames(10), phases("STRAIGHT", 4, "LEFT", 3, "RIGHT", 3));
 	}
 
 	/**
-	 * Executa uma validacao seguindo a sequencia sorteada no desafio. Quando {@code doTurn} e falso,
-	 * os frames dos movimentos permanecem frontais (para testar falha de prova de vida).
+	 * Executa uma validacao seguindo a sequencia sorteada no desafio (qualquer uma das 4 direcoes).
+	 * Quando {@code doTurn} e falso, os frames dos movimentos permanecem frontais (para testar
+	 * falha de prova de vida).
 	 */
 	private VerifyResult runVerify(Challenge challenge, float[] face, boolean doTurn) {
 		List<String> phaseLabels = new ArrayList<>();
-		enqueueFrames(0.5, 4, face); // STRAIGHT
+		enqueueFrames(0.5, 0.5, 4, face); // STRAIGHT (pose neutra: yaw 0.5, pitch 0.5)
 		for (int i = 0; i < 4; i++) {
 			phaseLabels.add("STRAIGHT");
 		}
 		List<Direction> seq = challenge.sequence();
 		for (int i = 0; i < seq.size(); i++) {
-			double nose = doTurn ? (seq.get(i) == Direction.LEFT ? 0.68 : 0.32) : 0.5;
-			enqueueFrames(nose, 3, face);
+			double h = 0.5;
+			double v = 0.5;
+			if (doTurn) {
+				switch (seq.get(i)) {
+					case LEFT -> h = 0.68;
+					case RIGHT -> h = 0.32;
+					case UP -> v = 0.32;
+					case DOWN -> v = 0.68;
+				}
+			}
+			enqueueFrames(h, v, 3, face);
 			for (int j = 0; j < 3; j++) {
 				phaseLabels.add("TURN" + (i + 1));
 			}
@@ -275,17 +329,21 @@ class FaceServiceTest {
 		return faceService.verify(user, challenge.id(), frames(phaseLabels.size()), phaseLabels);
 	}
 
-	private void enqueueFrames(double noseRatio, int count, float[] embedding) {
+	private void enqueueFrames(double noseRatio, double noseVertical, int count, float[] embedding) {
 		for (int i = 0; i < count; i++) {
-			detQueue.add(detection(noseRatio, 100));
+			detQueue.add(detection(noseRatio, noseVertical, 100));
 			embQueue.add(embedding);
 		}
 	}
 
-	/** kps: olhos em x=0 e x=100 (interocular 100), nariz em noseRatio*100, caixa 200x200. */
-	private static Detection detection(double noseRatio, float interocular) {
+	/**
+	 * Geometria sintetica: olhos em x=0/x=100 y=100 (interocular 100), boca em y=160.
+	 * noseRatio posiciona o nariz no eixo horizontal; noseVertical entre olhos (0) e boca (1).
+	 */
+	private static Detection detection(double noseRatio, double noseVertical, float interocular) {
+		float noseY = (float) (100 + noseVertical * 60);
 		float[] kps = {
-			0, 100, interocular, 100, (float) (noseRatio * interocular), 130, 30, 160, 70, 160
+			0, 100, interocular, 100, (float) (noseRatio * interocular), noseY, 30, 160, 70, 160
 		};
 		return new Detection(0.9f, 0, 50, 200, 250, kps);
 	}
