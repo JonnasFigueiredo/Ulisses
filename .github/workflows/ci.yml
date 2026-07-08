@@ -45,3 +45,30 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build das imagens
         run: docker compose build
+
+  ios:
+    name: App iOS (build sem assinatura)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Instalar e buildar o web
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          npx cap sync ios
+      - name: Compilar o app iOS (simulador, sem assinatura)
+        working-directory: frontend/ios/App
+        run: |
+          xcodebuild build \
+            -project App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO

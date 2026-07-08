@@ -5,7 +5,7 @@
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![React](https://img.shields.io/badge/React-18-61dafb)
 
-Cadastro e validação de biometria facial por vídeo, com **reconhecimento 100% local** — nenhuma imagem sai da sua infraestrutura. Pensado como um bloco funcional que empresas podem hospedar por conta própria, com prova de vida (ativa + anti-spoofing), tema claro/escuro e app Android.
+Cadastro e validação de biometria facial por vídeo, com **reconhecimento 100% local** — nenhuma imagem sai da sua infraestrutura. Pensado como um bloco funcional que empresas podem hospedar por conta própria, com prova de vida (ativa + anti-spoofing), tema claro/escuro e apps **Android e iOS** (mesma base web via Capacitor).
 
 > ⚠️ **Antes de usar comercialmente, leia [Licenças dos componentes](#licenças-dos-componentes) e o [Checklist de produção](#checklist-de-produção).** O código é MIT, mas os modelos padrão de detecção/reconhecimento têm licença de uso não-comercial.
 
@@ -134,6 +134,20 @@ O APK sai em `frontend/android/app/build/outputs/apk/debug/app-debug.apk`. Insta
 3. No app, com o celular na mesma rede Wi-Fi, preencha o campo **Servidor Ulisses** na tela de login, ex.: `http://192.168.0.10:8080`.
 
 No app a câmera funciona sem HTTPS (o WebView do Capacitor roda em contexto seguro) e a permissão de câmera é pedida no primeiro uso.
+
+### Aplicativo iOS (iPhone/iPad)
+
+O projeto iOS (Capacitor, Swift Package Manager) fica em `frontend/ios/`. **O build exige macOS + Xcode** — não é possível compilar no Windows. Em um Mac:
+
+```bash
+cd frontend
+npm install && npm run build && npx cap sync ios
+npx cap open ios          # abre no Xcode; rode em um dispositivo/simulador
+```
+
+O `Info.plist` já está configurado com a permissão de câmera (`NSCameraUsageDescription`), o acesso à rede local (`NSLocalNetworkUsageDescription`, exigido pelo iOS 14+ para alcançar o servidor por IP) e a exceção de ATS para conectar ao servidor por `http://` na rede local. O fluxo do app é idêntico ao Android — inclusive o campo **Servidor Ulisses** na tela de login.
+
+> Sem um Mac à mão, o **CI (GitHub Actions)** já compila o app iOS num runner macOS a cada push (job _App iOS_), servindo como verificação de que o projeto compila. Para distribuir, é preciso conta de desenvolvedor Apple e assinatura.
 
 ## Calibração e padrões globais
 
