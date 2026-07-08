@@ -37,6 +37,11 @@ public final class PassiveLivenessDetector implements AutoCloseable {
 	public PassiveLivenessDetector(
 			OrtEnvironment env, Path modelV2Path, Path modelV1sePath, int liveClassIndex)
 			throws OrtException {
+		if (liveClassIndex < 0 || liveClassIndex > 2) {
+			// Falha alto: um indice invalido leria a classe errada e aprovaria spoofs silenciosamente.
+			throw new IllegalArgumentException(
+					"live-class-index deve estar entre 0 e 2 (softmax de 3 classes): " + liveClassIndex);
+		}
 		this.env = env;
 		this.modelV2 = env.createSession(modelV2Path.toString(), new OrtSession.SessionOptions());
 		this.modelV1se = env.createSession(modelV1sePath.toString(), new OrtSession.SessionOptions());
@@ -49,8 +54,7 @@ public final class PassiveLivenessDetector implements AutoCloseable {
 	public synchronized double score(BufferedImage image, Detection face) {
 		float[] a = softmax(infer(modelV2, inputV2, image, face, SCALE_V2));
 		float[] b = softmax(infer(modelV1se, inputV1se, image, face, SCALE_V1SE));
-		int idx = Math.min(liveClassIndex, Math.min(a.length, b.length) - 1);
-		return (a[idx] + b[idx]) / 2.0;
+		return (a[liveClassIndex] + b[liveClassIndex]) / 2.0;
 	}
 
 	private float[] infer(

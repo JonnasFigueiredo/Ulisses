@@ -228,13 +228,44 @@ class FaceServiceTest {
 		enqueueFrames(0.5, 0.5, 4, FACE_A);
 		for (int i = 0; i < 4; i++) phaseLabels.add("STRAIGHT");
 		for (int i = 0; i < challenge.sequence().size(); i++) {
-			enqueueFrames(0.68, 0.5, 3, FACE_A); // movimento horizontal, pitch neutro
-			for (int j = 0; j < 3; j++) phaseLabels.add("TURN" + (i + 1));
+			enqueueFrames(0.5, 0.5, 2, FACE_A); // neutro
+			enqueueFrames(0.68, 0.5, 3, FACE_A); // movimento HORIZONTAL, pitch neutro (eixo errado)
+			for (int j = 0; j < 5; j++) phaseLabels.add("TURN" + (i + 1));
 		}
 		VerifyResult result =
 				faceService.verify(user, challenge.id(), frames(phaseLabels.size()), phaseLabels);
 
 		assertFalse(result.liveness()); // eixo errado: movimento 1 (para cima) nao confirmado
+		assertFalse(result.success());
+	}
+
+	@Test
+	@DisplayName("ATAQUE: fotos ja viradas (sem frame neutro) sao recusadas pelo movimento observado")
+	void staticTurnedPhotosAreRejected() {
+		enrollBaseline();
+		Challenge challenge = challengeService.create(1L);
+
+		// Atacante rotula fotos JA no desvio como TURN, sem nenhum frame neutro (sem transicao).
+		List<String> phaseLabels = new ArrayList<>();
+		enqueueFrames(0.5, 0.5, 4, FACE_A);
+		for (int i = 0; i < 4; i++) phaseLabels.add("STRAIGHT");
+		List<Direction> seq = challenge.sequence();
+		for (int i = 0; i < seq.size(); i++) {
+			double h = 0.5;
+			double v = 0.5;
+			switch (seq.get(i)) {
+				case LEFT -> h = 0.68;
+				case RIGHT -> h = 0.32;
+				case UP -> v = 0.32;
+				case DOWN -> v = 0.68;
+			}
+			enqueueFrames(h, v, 5, FACE_A); // TODOS ja no desvio, nenhum neutro
+			for (int j = 0; j < 5; j++) phaseLabels.add("TURN" + (i + 1));
+		}
+		VerifyResult result =
+				faceService.verify(user, challenge.id(), frames(phaseLabels.size()), phaseLabels);
+
+		assertFalse(result.liveness()); // reprovado: movimento nao observado ao vivo
 		assertFalse(result.success());
 	}
 
@@ -284,7 +315,7 @@ class FaceServiceTest {
 				ApiException.class,
 				() -> faceService.verify(user, "desafio-invalido", frames(0), phases()));
 		assertEquals(HttpStatus.TOO_MANY_REQUESTS, ex.getStatus());
-		assertTrue(ex.getMessage().contains("Muitas tentativas"));
+		assertTrue(ex.getMessage().contains("Muitas requisicoes"));
 	}
 
 	// ---------- helpers ----------
@@ -320,10 +351,14 @@ class FaceServiceTest {
 					case UP -> v = 0.32;
 					case DOWN -> v = 0.68;
 				}
-			}
-			enqueueFrames(h, v, 3, face);
-			for (int j = 0; j < 3; j++) {
-				phaseLabels.add("TURN" + (i + 1));
+				// Rajada continua: 2 frames NEUTROS (partida do centro) + 3 no desvio (movimento
+				// observado), como o frontend passa a enviar.
+				enqueueFrames(0.5, 0.5, 2, face);
+				enqueueFrames(h, v, 3, face);
+				for (int j = 0; j < 5; j++) phaseLabels.add("TURN" + (i + 1));
+			} else {
+				enqueueFrames(0.5, 0.5, 3, face); // sem movimento
+				for (int j = 0; j < 3; j++) phaseLabels.add("TURN" + (i + 1));
 			}
 		}
 		return faceService.verify(user, challenge.id(), frames(phaseLabels.size()), phaseLabels);

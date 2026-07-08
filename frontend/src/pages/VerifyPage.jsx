@@ -3,12 +3,11 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import {
   average,
-  challengeDeviation,
+  captureChallengeMotion,
   collectPosedFrames,
   DIRECTIONS,
   positionIssue,
   STRAIGHT_RANGE,
-  TURN_DEVIATION,
   useCamera,
   useLivePosition,
 } from '../camera.js';
@@ -89,20 +88,17 @@ export default function VerifyPage() {
         setLive({ ok: false, message: 'Prepare-se...', progress: 0 });
         // pequena pausa para o usuario voltar ao centro entre um movimento e outro
         if (i > 0) await sleep(900);
-        const turn = await collectPosedFrames(videoRef.current, {
-          count: 6,
-          isPoseOk: (p) =>
-            positionIssue(p, { strict: false }) == null &&
-            challengeDeviation(p, dir, baselines) >= TURN_DEVIATION,
+        const turn = await captureChallengeMotion(videoRef.current, {
+          direction: dir,
+          baselines,
           onUpdate: setLive,
           timeoutMs: 30000,
           messages: {
-            noFace: 'Rosto nao detectado — mantenha o rosto visivel durante o movimento',
-            adjust: (p) =>
-              positionIssue(p, { strict: false }) ||
-              `${info.verb} ${info.label} e segure`,
-            holding: 'Isso! Mantenha a pose',
-            timeout: 'O movimento de cabeca nao foi confirmado a tempo. Tente novamente.',
+            noFace: 'Rosto nao detectado — mantenha o rosto visivel e centralizado',
+            center: 'Centralize o rosto para comecar o movimento',
+            move: `${info.verb} ${info.label}`,
+            hold: 'Isso! Segure a pose',
+            timeout: 'O movimento nao foi confirmado a tempo. Comece centralizado e mova o rosto. Tente novamente.',
           },
         });
         turn.frames.forEach((blob) => {

@@ -43,13 +43,14 @@ public class ChallengeService {
 		cleanupExpired();
 		// Um desafio ativo por usuario
 		active.values().removeIf(c -> c.userId().equals(userId));
-		Direction[] directions = Direction.values();
+		// Sorteia DUAS direcoes DISTINTAS (sem reposicao): garante dois movimentos diferentes e
+		// preserva a entropia do desafio (evita [LEFT,LEFT] etc.).
+		List<Direction> pool = new java.util.ArrayList<>(List.of(Direction.values()));
+		java.util.Collections.shuffle(pool, random);
 		Challenge challenge = new Challenge(
 				UUID.randomUUID().toString(),
 				userId,
-				List.of(
-						directions[random.nextInt(directions.length)],
-						directions[random.nextInt(directions.length)]),
+				List.of(pool.get(0), pool.get(1)),
 				Instant.now().plusSeconds(properties.challengeTtlSeconds()));
 		active.put(challenge.id(), challenge);
 		return challenge;

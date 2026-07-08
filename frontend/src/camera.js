@@ -118,10 +118,74 @@ export async function collectPosedFrames(
   return { frames, ratios, verticals };
 }
 
+/** Banda "neutra": desvio abaixo disto conta como rosto centralizado (partida do movimento). */
+export const NEUTRAL_BAND = 0.06;
+
 /** Faixa considerada "olhando para frente" (posicao relativa do nariz entre os olhos). */
 export const STRAIGHT_RANGE = { min: 0.38, max: 0.62 };
 /** Desvio minimo vs a pose frontal para considerar que o rosto foi movido na direcao pedida. */
 export const TURN_DEVIATION = 0.13;
+
+/**
+ * Captura um MOVIMENTO de prova de vida como uma rajada CONTINUA: grava do rosto centralizado
+ * (frame neutro) ate atingir e segurar o desvio pedido, enviando TODA a trajetoria (centro ->
+ * movimento) em ordem. O servidor exige justamente essa transicao observada — o que impede que
+ * fotos ja viradas do alvo sejam rotuladas como "giro". Retorna os frames na ordem de captura.
+ */
+export async function captureChallengeMotion(video, {
+  direction,
+  baselines,
+  onUpdate,
+  messages,
+  timeoutMs = 30000,
+  minFrames = 6,
+  maxFrames = 16,
+  holdTarget = 3,
+  delayMs = 150,
+}) {
+  const frames = [];
+  let sawNeutral = false;
+  let held = 0;
+  const startedAt = Date.now();
+
+  while (frames.length < maxFrames) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(messages.timeout);
+    }
+    const blob = await captureFrame(video);
+    const form = new FormData();
+    form.append('frame', new File([blob], 'pose.jpg', { type: 'image/jpeg' }));
+    const pose = await api('/api/face/pose', { method: 'POST', form });
+
+    if (!pose.faceDetected || positionIssue(pose, { strict: false })) {
+      onUpdate?.({ ok: false, message: messages.noFace, progress: held / holdTarget });
+      await sleep(delayMs);
+      continue;
+    }
+
+    const dev = challengeDeviation(pose, direction, baselines);
+    frames.push(blob); // grava a trajetoria continua (inclui o inicio neutro e a transicao)
+
+    if (Math.abs(dev) <= NEUTRAL_BAND) sawNeutral = true;
+    if (sawNeutral && dev >= TURN_DEVIATION) held += 1;
+
+    if (!sawNeutral) {
+      onUpdate?.({ ok: false, message: messages.center, progress: 0 });
+    } else if (dev < TURN_DEVIATION) {
+      onUpdate?.({ ok: false, message: messages.move, progress: Math.min(0.6, dev / TURN_DEVIATION * 0.6) });
+    } else {
+      onUpdate?.({ ok: true, message: messages.hold, progress: 0.6 + 0.4 * (held / holdTarget) });
+    }
+
+    if (sawNeutral && held >= holdTarget && frames.length >= minFrames) break;
+    await sleep(delayMs);
+  }
+
+  if (!sawNeutral || held < holdTarget) {
+    throw new Error(messages.timeout);
+  }
+  return { frames };
+}
 
 /** Rotulo, seta e eixo de cada direcao de desafio (LEFT/RIGHT = giro; UP/DOWN = inclinacao). */
 export const DIRECTIONS = {

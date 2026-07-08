@@ -141,7 +141,22 @@ O sistema segue os referenciais internacionais de biometria facial:
 
 - **Decisão 1:1 (FIDO Biometrics / NIST FRVT)** — a aceitação usa a **mediana** da similaridade de cosseno dos frames frontais contra os templates (mediana é robusta a frames atípicos). O limiar padrão `0.45` opera com taxa de falsa aceitação (FMR) na ordem de **1:100.000**, com folga sobre o requisito FIDO de 1:10.000. Pontos de operação: `0.38` conveniência (~1:1.000) · `0.42` equilibrado (~1:10.000, requisito FIDO) · `0.45` recomendado · `0.50` alta segurança. Os valores exatos de FMR variam com população e condições de captura.
 - **Qualidade de cadastro (ISO/IEC 19794-5)** — os frames frontais do cadastro exigem **distância interocular ≥ 60 px**, garantindo resolução suficiente do template; a interface orienta o usuário a se aproximar da câmera quando necessário.
-- **Prova de vida ativa (ISO/IEC 30107)** — desafio dinâmico de uso único sorteado pelo servidor; ≥ 60% dos frames do giro precisam confirmar o movimento na direção sorteada, com verificação de identidade contínua durante o movimento.
+- **Prova de vida ativa (ISO/IEC 30107)** — desafio dinâmico de uso único sorteado pelo servidor; o **movimento é verificado como observado ao vivo** (a captura precisa partir do rosto centralizado e transitar até o desvio pedido — ver abaixo), com verificação de identidade contínua durante o movimento.
+
+## Modelo de ameaça e limites honestos da prova de vida
+
+O sistema foi endurecido a partir de uma **revisão adversarial** (o relatório e as correções estão no histórico de commits). O que a prova de vida ativa **garante** e o que **não** garante:
+
+**Defesas implementadas (server-side, não confiam no cliente):**
+- **Movimento observado ao vivo:** cada movimento do desafio precisa conter um frame com o rosto **centralizado** (neutro) *antes* de atingir o desvio pedido, com trajetória contínua. Isso derruba o ataque mais barato — **rotular fotos já viradas do alvo como "giro"** (uma foto estática nunca tem o frame neutro + a transição).
+- **Baseline validada no servidor:** a pose frontal de referência é checada como realmente frontal (yaw e pitch), então o atacante não pode enviesar o referencial.
+- **Desafio 2-de-4 direções distintas** (esquerda/direita/cima/baixo), uso único, expira em 2 min; **identidade por mediana** também durante o movimento; resolução mínima e nitidez exigidas; **rejeição de múltiplos rostos**; **rate limiting** em `verify`, `challenge` e `pose`; teto de frames por requisição.
+
+**Limite fundamental (seja honesto ao apresentar):** por ser uma arquitetura de **upload de frames** (o cliente envia imagens, não um stream ao vivo autenticado), um atacante que possua o **JWT do titular + um vídeo do titular executando os movimentos** ainda pode, teoricamente, recortar os trechos correspondentes ao desafio. Fechar isso de vez exige uma das duas coisas, que **não** são código de aplicação e estão documentadas como evolução:
+1. **Canal em tempo real** (WebRTC) com *nonce por frame* emitido pelo servidor no momento do desafio, atando cada frame àquela sessão;
+2. **PAD certificado ISO/IEC 30107-3** (laboratório iBeta), que detecta a textura de tela/replay independentemente do movimento.
+
+Além disso, o **cadastro (`enroll`) não exige prova de vida** — quem tem a sessão pode re-cadastrar a própria biometria; trate o cadastro como operação sensível com reautenticação forte em produção.
 
 ## Prova de vida passiva (anti-spoofing) e calibração
 

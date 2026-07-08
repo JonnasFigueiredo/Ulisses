@@ -45,18 +45,38 @@ public class FaceService {
 	private static final double MIN_ENROLL_CONSISTENCY = 0.45;
 	/** Frames frontais validos minimos para uma validacao. */
 	private static final int MIN_VERIFY_STRAIGHT_FRAMES = 3;
+	/** Faixa (yaw e pitch) que um frame frontal legitimo precisa respeitar. Valida a baseline no verify. */
+	private static final double FRONTAL_MIN = 0.36;
+	private static final double FRONTAL_MAX = 0.64;
+	/** Interocular minima tambem no verify (nao so no cadastro): barra spoof de baixa resolucao/tela. */
+	private static final int MIN_VERIFY_INTEROCULAR = 45;
 	/** Desvio minimo do nariz (em fracao da distancia interocular) para aceitar o giro de cabeca. */
 	private static final double MIN_TURN_DEVIATION = 0.12;
-	/** Fracao minima dos frames de giro que precisam confirmar o movimento na direcao sorteada. */
-	private static final double MIN_TURN_FRAME_RATIO = 0.6;
-	/** Identidade minima nos frames de giro (pose lateral degrada o embedding, limiar mais baixo). */
-	private static final double MIN_TURN_IDENTITY = 0.30;
+	/** Frames minimos (absolutos) que precisam atingir o desvio pedido na direcao sorteada. */
+	private static final int MIN_MOVED_FRAMES = 3;
+	/**
+	 * Movimento OBSERVADO: cada segmento de giro precisa conter um frame proximo do neutro
+	 * (|desvio| abaixo disto) antes de atingir o desvio pedido. Uma foto ja virada nunca tem esse
+	 * frame neutro — o que derruba o ataque de "foto estatica rotulada como giro".
+	 */
+	private static final double NEUTRAL_BAND = 0.06;
+	/** Identidade minima nos frames de giro (pose lateral degrada o embedding, mas 0.30 era baixo demais). */
+	private static final double MIN_TURN_IDENTITY = 0.38;
 	/** Salto maximo do nariz entre frames consecutivos do giro: movimento real e continuo. */
 	private static final double MAX_RATIO_JUMP = 0.45;
 	/** Um segundo rosto com area acima desta fracao do principal invalida o frame. */
-	private static final double SECOND_FACE_AREA_RATIO = 0.25;
+	private static final double SECOND_FACE_AREA_RATIO = 0.20;
 	/** Limite de tentativas de validacao por usuario por minuto (anti forca bruta). */
 	private static final int MAX_VERIFY_PER_MINUTE = 6;
+	/** Limite de sorteios de desafio por usuario por minuto. */
+	private static final int MAX_CHALLENGE_PER_MINUTE = 20;
+	/**
+	 * Limite de checagens de pose por usuario por minuto. Alto de proposito: o cliente legitimo
+	 * consulta /pose varias vezes por segundo para o feedback ao vivo; o teto so barra abuso grosseiro.
+	 */
+	private static final int MAX_POSE_PER_MINUTE = 600;
+	/** Teto de frames processados por requisicao (anti-DoS de inferencia). */
+	private static final int MAX_FRAMES_PER_REQUEST = 80;
 
 	private final FaceEngine engine;
 	private final FaceProperties properties;
@@ -94,8 +114,20 @@ public class FaceService {
 	/** Resultado do processamento com contadores de descarte para mensagens de erro precisas. */
 	private record ProcessResult(List<ProcessedFrame> frames, int multiFace, int blurry) {}
 
-	private final Map<Long, java.util.concurrent.ConcurrentLinkedDeque<Long>> verifyAttemptsByUser =
+	/**
+	 * Rate limit em memoria por usuario e por "balde" (verify / light). AVISO: e por instancia;
+	 * em deployment multi-instancia mova para um store compartilhado (Redis) com operacoes atomicas.
+	 */
+	private final Map<String, java.util.concurrent.ConcurrentLinkedDeque<Long>> rateBuckets =
 			new java.util.concurrent.ConcurrentHashMap<>();
+
+	public void checkChallengeRateLimit(Long userId) {
+		enforceRate("challenge:" + userId, MAX_CHALLENGE_PER_MINUTE);
+	}
+
+	public void checkPoseRateLimit(Long userId) {
+		enforceRate("pose:" + userId, MAX_POSE_PER_MINUTE);
+	}
 
 	@Transactional
 	public EnrollResult enroll(User user, List<MultipartFile> frames, List<String> phases) {
@@ -157,7 +189,8 @@ public class FaceService {
 				.map(FaceTemplate::getEmbeddingVector)
 				.toList();
 
-		ProcessResult processResult = processFrames(frames, phases, 0, true);
+		// No verify tambem exigimos resolucao minima nos frames frontais (barra spoof de tela pequena).
+		ProcessResult processResult = processFrames(frames, phases, MIN_VERIFY_INTEROCULAR, true);
 		List<ProcessedFrame> processed = processResult.frames();
 		List<ProcessedFrame> straight = processed.stream()
 				.filter(f -> "STRAIGHT".equals(f.phase()))
@@ -165,6 +198,16 @@ public class FaceService {
 
 		if (straight.size() < MIN_VERIFY_STRAIGHT_FRAMES) {
 			throw ApiException.badRequest(qualityMessage(processResult));
+		}
+
+		// A baseline de pose e validada NO SERVIDOR como frontal (nao confiamos no rotulo do cliente):
+		// um atacante nao pode enviesar a linha de base com frames "STRAIGHT" ja tortos.
+		double hBaseCheck = medianNoseRatio(straight);
+		double vBaseCheck = median(straight.stream().mapToDouble(ProcessedFrame::noseVertical).toArray());
+		if (hBaseCheck < FRONTAL_MIN || hBaseCheck > FRONTAL_MAX
+				|| vBaseCheck < FRONTAL_MIN || vBaseCheck > FRONTAL_MAX) {
+			throw ApiException.badRequest(
+					"Nao foi possivel estabelecer o rosto frontal. Olhe diretamente para a camera no inicio da validacao.");
 		}
 
 		// 1) Identidade: MEDIANA da melhor similaridade de cada frame frontal contra os templates.
@@ -340,13 +383,33 @@ public class FaceService {
 						false, "Movimento " + (i + 1) + " (" + directionLabel(direction) + ") nao detectado");
 			}
 
-			long moved = segment.stream()
-					.filter(f -> axisDeviation(f, direction, hBaseline, vBaseline) >= MIN_TURN_DEVIATION)
-					.count();
-			if (moved < Math.ceil(segment.size() * MIN_TURN_FRAME_RATIO)) {
+			// Precisa ATINGIR o desvio pedido em frames suficientes...
+			double maxDeviation = Double.NEGATIVE_INFINITY;
+			double minDeviation = Double.POSITIVE_INFINITY;
+			long moved = 0;
+			for (ProcessedFrame f : segment) {
+				double dev = axisDeviation(f, direction, hBaseline, vBaseline);
+				maxDeviation = Math.max(maxDeviation, dev);
+				minDeviation = Math.min(minDeviation, dev);
+				if (dev >= MIN_TURN_DEVIATION) {
+					moved++;
+				}
+			}
+			if (moved < MIN_MOVED_FRAMES) {
 				return new LivenessCheck(
 						false,
 						"O movimento " + (i + 1) + " (" + directionLabel(direction) + ") nao foi confirmado");
+			}
+
+			// ...e o MOVIMENTO precisa ter sido OBSERVADO acontecendo: o segmento tem de conter um
+			// frame proximo do neutro (partiu do centro) alem dos frames no desvio. Uma foto ja
+			// virada tem todos os frames no mesmo desvio (minDeviation alto) e reprova aqui — este e
+			// o principal reforco contra "foto estatica rotulada como giro".
+			if (minDeviation > NEUTRAL_BAND) {
+				return new LivenessCheck(
+						false,
+						"Movimento nao observado ao vivo (" + directionLabel(direction)
+								+ "): comece com o rosto centralizado e mova durante a captura");
 			}
 
 			// Trajetoria continua no eixo do desafio: um movimento real nao "teleporta" — saltos
@@ -360,11 +423,10 @@ public class FaceService {
 			allTurnFrames.addAll(segment);
 		}
 
-		// A pessoa que girou a cabeca precisa ser a mesma dos templates (evita troca de rosto no meio)
-		double turnIdentity = allTurnFrames.stream()
+		// A pessoa que girou a cabeca precisa ser a mesma dos templates (mediana, robusta a outliers)
+		double turnIdentity = median(allTurnFrames.stream()
 				.mapToDouble(f -> bestSimilarity(f.embedding(), templateVectors))
-				.average()
-				.orElse(0);
+				.toArray());
 		if (turnIdentity < MIN_TURN_IDENTITY) {
 			return new LivenessCheck(false, "Identidade inconsistente durante os movimentos");
 		}
@@ -399,6 +461,9 @@ public class FaceService {
 		}
 		if (phases == null || phases.size() != frames.size()) {
 			throw ApiException.badRequest("Cada frame precisa da fase de captura correspondente");
+		}
+		if (frames.size() > MAX_FRAMES_PER_REQUEST) {
+			throw ApiException.badRequest("Excesso de frames na requisicao");
 		}
 		boolean passive = computePassive && engine.isPassiveLivenessEnabled();
 		List<ProcessedFrame> processed = new ArrayList<>();
@@ -490,16 +555,26 @@ public class FaceService {
 	}
 
 	private void checkRateLimit(Long userId) {
-		var attempts = verifyAttemptsByUser.computeIfAbsent(
-				userId, k -> new java.util.concurrent.ConcurrentLinkedDeque<>());
+		enforceRate("verify:" + userId, MAX_VERIFY_PER_MINUTE);
+	}
+
+	/**
+	 * Janela deslizante de 1 minuto por chave. Corrige o vazamento de memoria anterior: baldes
+	 * vazios sao removidos do mapa apos a poda.
+	 */
+	private void enforceRate(String key, int maxPerMinute) {
+		var bucket = rateBuckets.computeIfAbsent(
+				key, k -> new java.util.concurrent.ConcurrentLinkedDeque<>());
 		long now = System.currentTimeMillis();
-		attempts.removeIf(t -> now - t > 60_000);
-		if (attempts.size() >= MAX_VERIFY_PER_MINUTE) {
+		bucket.removeIf(t -> now - t > 60_000);
+		if (bucket.size() >= maxPerMinute) {
 			throw new ApiException(
 					org.springframework.http.HttpStatus.TOO_MANY_REQUESTS,
-					"Muitas tentativas de validacao. Aguarde um minuto e tente novamente.");
+					"Muitas requisicoes. Aguarde um minuto e tente novamente.");
 		}
-		attempts.add(now);
+		bucket.add(now);
+		// Evita crescimento ilimitado do mapa: remove a chave se o balde esvaziar entre chamadas.
+		rateBuckets.values().removeIf(java.util.Collection::isEmpty);
 	}
 
 	private BufferedImage decode(MultipartFile file) {

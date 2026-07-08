@@ -45,13 +45,17 @@ public class FaceController {
 	}
 
 	@PostMapping("/pose")
-	public FaceDtos.PoseResponse pose(@RequestParam("frame") MultipartFile frame) {
+	public FaceDtos.PoseResponse pose(
+			Authentication authentication, @RequestParam("frame") MultipartFile frame) {
+		faceService.checkPoseRateLimit(currentUser(authentication).getId());
 		return faceService.pose(frame);
 	}
 
 	@PostMapping("/challenge")
 	public ChallengeResponse challenge(Authentication authentication) {
-		Challenge challenge = challengeService.create(currentUser(authentication).getId());
+		Long userId = currentUser(authentication).getId();
+		faceService.checkChallengeRateLimit(userId);
+		Challenge challenge = challengeService.create(userId);
 		return new ChallengeResponse(
 				challenge.id(),
 				challenge.sequence().stream().map(Enum::name).toList(),
