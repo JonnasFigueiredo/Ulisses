@@ -9,17 +9,28 @@ Cadastro e validação de biometria facial por vídeo, com **reconhecimento 100%
 
 > ⚠️ **Antes de usar comercialmente, leia [Licenças dos componentes](#licenças-dos-componentes) e o [Checklist de produção](#checklist-de-produção).** O código é MIT, mas os modelos padrão de detecção/reconhecimento têm licença de uso não-comercial.
 
-## Início rápido (Docker)
+## Início rápido
 
-Sobe backend + frontend com um comando:
+Um único comando builda e sobe **backend + frontend** (via Docker):
 
 ```bash
 git clone https://github.com/JonnasFigueiredo/Ulisses.git
 cd Ulisses
-docker compose up --build
+./run.sh            # Linux/macOS/Git Bash   (ou:  run.cmd  no Windows)
 ```
 
-Abra **http://localhost:5173** (a câmera funciona em `localhost` sem HTTPS). No primeiro start o backend baixa os modelos ONNX (~185 MB) uma única vez. Para produção, `cp .env.example .env` e defina segredos fortes antes de subir.
+Abra **http://localhost:5173** (a câmera funciona em `localhost` sem HTTPS). No primeiro start o backend baixa os modelos ONNX (~185 MB) uma única vez.
+
+O script `run.sh` / `run.cmd` aceita:
+
+| Comando | O que faz |
+|---|---|
+| `run.sh` (ou `docker`) | Sobe tudo via Docker (build + backend + frontend). Recomendado. |
+| `run.sh dev` | Desenvolvimento nativo com **hot reload** (backend + frontend). |
+| `run.sh build` | Builda backend (jar) e frontend (dist), sem rodar. |
+| `run.sh stop` | Derruba os containers do Docker. |
+
+Sem os scripts, o equivalente é `docker compose up --build`. Para produção, `cp .env.example .env` e defina segredos fortes antes de subir.
 
 ## Demonstração
 
