@@ -5,6 +5,7 @@ import { useAuth } from '../auth.jsx';
 import {
   IconCamera,
   IconCheck,
+  IconClock,
   IconFaceScan,
   IconLogout,
   IconRefresh,
@@ -130,6 +131,30 @@ export default function HomePage() {
             )}
           </div>
         </section>
+
+        {status?.enrolled && (
+          <section className="card">
+            <div className="status-row">
+              <div className="card-title">
+                <span className="icon-badge">
+                  <IconClock size={22} />
+                </span>
+                <div>
+                  <h2>Demonstracao: ponto eletronico</h2>
+                  <p className="muted">
+                    Bater ponto por reconhecimento facial, com prova de vida — ninguem bate por voce.
+                  </p>
+                </div>
+              </div>
+              <span className="pill pill-demo">Demo</span>
+            </div>
+            <div className="actions">
+              <Link to="/ponto" className="btn primary">
+                <IconClock size={18} /> Abrir ponto eletronico
+              </Link>
+            </div>
+          </section>
+        )}
 
         {history.length > 0 && (
           <section className="card">

@@ -82,6 +82,8 @@ flowchart LR
 
 Fluxo do usuário: criar conta / login → **cadastro facial por vídeo** (captura guiada em 3 poses) → **validação por vídeo** com prova de vida.
 
+**Demonstração prática incluída — ponto eletrônico anti-"buddy punching":** a tela `/ponto` bate ponto (entrada/saída) por reconhecimento facial reaproveitando **integralmente** a validação já existente (mesma prova de vida + anti-spoofing). O registro só acontece se a validação completa passar — ninguém bate o ponto por outro. É um exemplo de como plugar o motor de verificação em um caso de uso real.
+
 - Os modelos ONNX (~180 MB) são baixados automaticamente **uma única vez** no primeiro start do backend, para a pasta `backend/models/`. Depois disso o sistema funciona offline.
 - Backend: Java 21 + Spring Boot 3.5 (JWT, JPA/H2). Frontend: React 18 + Vite, responsivo (webcam no desktop, câmera frontal no celular), com **tema claro/escuro** (respeita a preferência do sistema e permite alternar).
 - Identidade visual: o ícone é um **elmo coríntio** (capacete do herói grego que dá nome ao sistema). As artes-fonte ficam em `frontend/assets/`; os ícones do Android são gerados com `npx @capacitor/assets generate --android`.
@@ -279,6 +281,8 @@ que o adotante precisa respeitar:
 | `POST` | `/api/face/verify` | Validação (multipart: `challengeId`, `frames[]`, `phases[]`) |
 | `DELETE` | `/api/face/enrollment` | Remove a biometria |
 | `GET` | `/api/face/history` | Últimas validações |
+| `POST` | `/api/timeclock/punch` | Bate ponto (reusa `verify`; registra só se a validação passar) |
+| `GET` | `/api/timeclock/today` | Próximo tipo (entrada/saída) e registros de hoje |
 
 ## Licença
 

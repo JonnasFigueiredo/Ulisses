@@ -596,6 +596,11 @@ body {
   color: var(--warn);
 }
 
+.pill-demo {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
 .history {
   list-style: none;
   margin: 0;
@@ -632,6 +637,11 @@ body {
 .history-icon.fail {
   background: var(--fail-soft);
   color: var(--fail);
+}
+
+.history-icon.info {
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 .history-info {

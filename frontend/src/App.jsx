@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage.jsx';
 import HomePage from './pages/HomePage.jsx';
 import EnrollPage from './pages/EnrollPage.jsx';
 import VerifyPage from './pages/VerifyPage.jsx';
+import PontoPage from './pages/PontoPage.jsx';
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -42,6 +43,14 @@ export default function App() {
         element={
           <Protected>
             <VerifyPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/ponto"
+        element={
+          <Protected>
+            <PontoPage />
           </Protected>
         }
       />
