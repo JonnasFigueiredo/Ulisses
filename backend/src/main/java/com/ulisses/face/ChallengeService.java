@@ -43,9 +43,14 @@ public class ChallengeService {
 		cleanupExpired();
 		// Um desafio ativo por usuario
 		active.values().removeIf(c -> c.userId().equals(userId));
-		// Sorteia DUAS direcoes DISTINTAS (sem reposicao): garante dois movimentos diferentes e
-		// preserva a entropia do desafio (evita [LEFT,LEFT] etc.).
-		List<Direction> pool = new java.util.ArrayList<>(List.of(Direction.values()));
+		// Sorteia DUAS direcoes DISTINTAS (sem reposicao). Por padrao apenas horizontais
+		// (esquerda/direita), que sao confiaveis em 2D; as verticais (cima/baixo) entram no sorteio
+		// so quando include-vertical-challenges=true, pois exigem calibracao por dispositivo.
+		List<Direction> pool = new java.util.ArrayList<>(List.of(Direction.LEFT, Direction.RIGHT));
+		if (properties.includeVerticalChallenges()) {
+			pool.add(Direction.UP);
+			pool.add(Direction.DOWN);
+		}
 		java.util.Collections.shuffle(pool, random);
 		Challenge challenge = new Challenge(
 				UUID.randomUUID().toString(),

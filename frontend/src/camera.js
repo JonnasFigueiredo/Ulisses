@@ -121,10 +121,16 @@ export async function collectPosedFrames(
 /** Banda "neutra": desvio abaixo disto conta como rosto centralizado (partida do movimento). */
 export const NEUTRAL_BAND = 0.06;
 
-/** Faixa considerada "olhando para frente" (posicao relativa do nariz entre os olhos). */
-export const STRAIGHT_RANGE = { min: 0.38, max: 0.62 };
-/** Desvio minimo vs a pose frontal para considerar que o rosto foi movido na direcao pedida. */
+/** Faixa de YAW considerada "olhando para frente" (~0 de frente; roll-corrigido no servidor). */
+export const STRAIGHT_RANGE = { min: -0.24, max: 0.24 };
+/** Desvio minimo vs a pose frontal para o GIRO horizontal (yaw). */
 export const TURN_DEVIATION = 0.13;
+/** Desvio minimo para a INCLINACAO vertical (pitch): sinal mais fraco, exige menos. */
+export const PITCH_DEVIATION = 0.09;
+
+/** Limiar do desvio conforme a direcao (um pouco acima do backend, para nao reprovar depois). */
+export const deviationThreshold = (direction) =>
+  direction === 'UP' || direction === 'DOWN' ? PITCH_DEVIATION : TURN_DEVIATION;
 
 /**
  * Captura um MOVIMENTO de prova de vida como uma rajada CONTINUA: grava do rosto centralizado
@@ -145,10 +151,11 @@ export async function captureChallengeMotion(video, {
 }) {
   const frames = [];
   let sawNeutral = false;
+  let motionStarted = false;
   let held = 0;
   const startedAt = Date.now();
 
-  while (frames.length < maxFrames) {
+  while (true) {
     if (Date.now() - startedAt > timeoutMs) {
       throw new Error(messages.timeout);
     }
@@ -164,26 +171,40 @@ export async function captureChallengeMotion(video, {
     }
 
     const dev = challengeDeviation(pose, direction, baselines);
-    frames.push(blob); // grava a trajetoria continua (inclui o inicio neutro e a transicao)
-
-    if (Math.abs(dev) <= NEUTRAL_BAND) sawNeutral = true;
-    if (sawNeutral && dev >= TURN_DEVIATION) held += 1;
+    const target = deviationThreshold(direction);
+    // Esperar no centro nao deve consumir o limite da trajetoria antes do movimento.
+    // Conserva apenas os dois ultimos frames neutros, depois registra a transicao inteira.
+    if (!motionStarted && Math.abs(dev) <= NEUTRAL_BAND) {
+      sawNeutral = true;
+      if (frames.length >= 2) frames.shift();
+      frames.push(blob);
+    } else if (sawNeutral) {
+      motionStarted = true;
+      frames.push(blob);
+    }
+    if (sawNeutral && dev >= target) held += 1;
 
     if (!sawNeutral) {
       onUpdate?.({ ok: false, message: messages.center, progress: 0 });
-    } else if (dev < TURN_DEVIATION) {
-      onUpdate?.({ ok: false, message: messages.move, progress: Math.min(0.6, dev / TURN_DEVIATION * 0.6) });
+    } else if (dev < target) {
+      onUpdate?.({ ok: false, message: messages.move, progress: Math.max(0, Math.min(0.6, (dev / target) * 0.6)) });
     } else {
       onUpdate?.({ ok: true, message: messages.hold, progress: 0.6 + 0.4 * (held / holdTarget) });
     }
 
     if (sawNeutral && held >= holdTarget && frames.length >= minFrames) break;
+    if (frames.length >= maxFrames) {
+      // Uma tentativa longa demais precisa recomecar do centro, sem aumentar o upload
+      // nem interromper o prazo de captura anunciado ao usuario.
+      frames.length = 0;
+      sawNeutral = false;
+      motionStarted = false;
+      held = 0;
+      onUpdate?.({ ok: false, message: messages.center, progress: 0 });
+    }
     await sleep(delayMs);
   }
 
-  if (!sawNeutral || held < holdTarget) {
-    throw new Error(messages.timeout);
-  }
   return { frames };
 }
 

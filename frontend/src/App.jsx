@@ -19,6 +19,24 @@ function Protected({ children }) {
 }
 
 export default function App() {
+  const { loading, sessionError, retrySession, logout } = useAuth();
+  if (loading) {
+    return <main className="page center" role="status"><div className="spinner" /><p>Restaurando sessao...</p></main>;
+  }
+  if (sessionError) {
+    return (
+      <main className="page center">
+        <section className="card auth-card">
+          <h1>Nao foi possivel restaurar a sessao</h1>
+          <p role="alert">{sessionError}</p>
+          <div className="actions">
+            <button type="button" className="btn primary" onClick={retrySession}>Tentar novamente</button>
+            <button type="button" className="btn ghost" onClick={logout}>Voltar ao login</button>
+          </div>
+        </section>
+      </main>
+    );
+  }
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

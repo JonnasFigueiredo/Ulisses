@@ -1,300 +1,198 @@
-# Ulisses · Biometria Facial por Vídeo
+# Ulisses · Biometria facial por vídeo
 
 ![CI](https://github.com/JonnasFigueiredo/Ulisses/actions/workflows/ci.yml/badge.svg)
-![License](https://img.shields.io/badge/license-MIT-blue)
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![React](https://img.shields.io/badge/React-18-61dafb)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
-Cadastro e validação de biometria facial por vídeo, com **reconhecimento 100% local** — nenhuma imagem sai da sua infraestrutura. Pensado como um bloco funcional que empresas podem hospedar por conta própria, com prova de vida (ativa + anti-spoofing), tema claro/escuro e apps **Android e iOS** (mesma base web via Capacitor).
+Aplicação full stack para cadastrar e comparar rostos com inferência no próprio backend. Reúne **Java/Spring Boot, React, ONNX Runtime e Capacitor**, com captura guiada pela câmera e uma demonstração de registro de entrada/saída por verificação facial.
 
-> ⚠️ **Antes de usar comercialmente, leia [Licenças dos componentes](#licenças-dos-componentes) e o [Checklist de produção](#checklist-de-produção).** O código é MIT, mas os modelos padrão de detecção/reconhecimento têm licença de uso não-comercial.
+**Status:** projeto experimental de portfólio. Há testes das regras de negócio, do contrato de entrada dos modelos e do cliente HTTP. A eficácia biométrica ainda precisa de avaliação com dados reais; o projeto não é uma solução antifraude certificada nem um sistema de ponto homologado.
 
-## Início rápido
+[Revisão técnica e prioridades](docs/REVISAO_TECNICA.md) · [Roteiro de testes e publicação](docs/TESTES_E_PUBLICACAO.md) · [Contribuição](CONTRIBUTING.md) · [Segurança](SECURITY.md)
 
-Um único comando builda e sobe **backend + frontend** (via Docker):
+## O que o projeto demonstra
 
-```bash
-git clone https://github.com/JonnasFigueiredo/Ulisses.git
-cd Ulisses
-./run.sh            # Linux/macOS/Git Bash   (ou:  run.cmd  no Windows)
-```
+- API REST organizada por domínio, autenticação JWT e senhas com BCrypt.
+- Pipeline local de detecção SCRFD, alinhamento facial e embeddings ArcFace.
+- Desafios de movimento de uso único e classificação passiva de apresentação facial com MiniFASNet.
+- Criptografia AES-GCM dos templates quando configurada, obrigatória no perfil `prod`.
+- Frontend responsivo, temas claro/escuro e projetos Android/iOS a partir da mesma interface.
+- Testes automatizados, builds Docker em múltiplos estágios e GitHub Actions.
 
-Abra **http://localhost:5173** (a câmera funciona em `localhost` sem HTTPS). No primeiro start o backend baixa os modelos ONNX (~185 MB) uma única vez.
+O fluxo é: **criar conta → cadastrar o rosto em três poses → executar uma verificação → consultar o histórico ou registrar ponto**. A identidade fica associada à conta criada pelo próprio usuário; não há validação documental dessa identidade.
 
-O script `run.sh` / `run.cmd` aceita:
-
-| Comando | O que faz |
-|---|---|
-| `run.sh` (ou `docker`) | Sobe tudo via Docker (build + backend + frontend). Recomendado. |
-| `run.sh dev` | Desenvolvimento nativo com **hot reload** (backend + frontend). |
-| `run.sh build` | Builda backend (jar) e frontend (dist), sem rodar. |
-| `run.sh stop` | Derruba os containers do Docker. |
-
-Sem os scripts, o equivalente é `docker compose up --build`. Para produção, `cp .env.example .env` e defina segredos fortes antes de subir.
-
-## Demonstração
-
-> 🎥 **Vídeo do funcionamento — cadastro e validação facial ao vivo**
->
-> <!-- COMO ADICIONAR O VÍDEO:
->      1. Edite este README pelo site do GitHub (ou abra uma issue), arraste o arquivo de vídeo
->         para o editor e o GitHub gera um link https://github.com/user-attachments/assets/...
->      2. Cole esse link no lugar da linha abaixo. -->
->
-> _🚧 Espaço reservado para a demonstração em vídeo (cadastro por vídeo + validação com prova de vida)._
-
-### Telas
+## Interface
 
 | Login | Início |
 |:---:|:---:|
 | ![Login](docs/screenshots/login-light.png) | ![Início](docs/screenshots/home-light.png) |
 
-**Tema claro/escuro** (respeita a preferência do sistema) e layout **responsivo**:
+| Tema escuro | Mobile |
+|:---:|:---:|
+| ![Início escuro](docs/screenshots/home-dark.png) | <img src="docs/screenshots/home-mobile.png" width="220" alt="Tela inicial no celular"> |
 
-| Login (escuro) | Início (escuro) | Mobile |
-|:---:|:---:|:---:|
-| ![Login escuro](docs/screenshots/login-dark.png) | ![Início escuro](docs/screenshots/home-dark.png) | <img src="docs/screenshots/home-mobile.png" width="220" alt="Mobile"> |
+As imagens acima são capturas já presentes no repositório. Para avaliar o comportamento da câmera e da prova de vida, execute o [roteiro manual](docs/TESTES_E_PUBLICACAO.md). Não há vídeo demonstrativo publicado neste README.
 
-> As telas de **captura por vídeo** (cadastro e validação, com o oval-guia, a prova de vida e o
-> anti-spoofing em ação) aparecem no vídeo acima — elas exigem câmera ao vivo.
+## Executar com Docker
 
-## Como funciona
-
-| Etapa | Tecnologia |
-|---|---|
-| Detecção facial + landmarks | **SCRFD (det_10g)** — detector do InsightFace, estado da arte em detecção facial |
-| Alinhamento facial | Transformação de similaridade (**Umeyama**) para o template canônico 112×112 |
-| Reconhecimento | **ArcFace (w600k_r50)** — embeddings de 512 dimensões, comparados por similaridade de cosseno |
-| Prova de vida ATIVA | **Desafio ativo duplo em 4 direções**: o servidor sorteia DOIS movimentos de cabeça entre **esquerda, direita, cima e baixo** (yaw + pitch, geometria dos 5 landmarks contra a linha de base do próprio usuário) que precisam ser executados ao vivo, na ordem — vídeo gravado tem **1 chance em 16 (~6%)**; desafio de uso único, expira em 2 minutos, com **análise de trajetória por eixo** (movimento contínuo, sem saltos de troca de foto/vídeo) e verificação de identidade contínua durante os movimentos |
-| Prova de vida PASSIVA | **Anti-spoofing por textura** via ensemble **MiniFASNet** (Silent-Face, Apache-2.0): segunda camada que analisa a textura ao redor do rosto para detectar foto impressa ou tela. Roda local, junto do reconhecimento. **Precisa ser calibrado/validado** (ver seção de PAD abaixo) |
-| Captura guiada por pose | Durante cadastro e validação, cada frame passa por checagem de pose em tempo real (`/api/face/pose`); a captura **só avança quando o usuário executa a pose pedida**, e o servidor revalida os giros no ato do cadastro |
-| Qualidade e antifraude | Nitidez mínima por variância do Laplaciano (descarta frames borrados), rejeição de frames com **mais de uma pessoa** no quadro, e **rate limiting** de 6 validações/minuto por usuário |
-| Inferência | **ONNX Runtime** rodando em CPU, embarcado no backend Java |
-
-### Arquitetura
-
-```mermaid
-flowchart LR
-    subgraph Cliente
-      W[Web React / Vite]
-      A[App Android / Capacitor]
-    end
-    W -->|/api REST + JWT| B
-    A -->|/api REST + JWT| B
-    subgraph Backend[Backend Java / Spring Boot]
-      B[API REST] --> S[FaceService]
-      S --> E[FaceEngine · ONNX Runtime]
-      E --> D[SCRFD detecção]
-      E --> R[ArcFace embeddings]
-      E --> P[MiniFASNet anti-spoofing]
-      S --> DB[(H2 · templates cifrados)]
-    end
-```
-
-Fluxo do usuário: criar conta / login → **cadastro facial por vídeo** (captura guiada em 3 poses) → **validação por vídeo** com prova de vida.
-
-**Demonstração prática incluída — ponto eletrônico anti-"buddy punching":** a tela `/ponto` bate ponto (entrada/saída) por reconhecimento facial reaproveitando **integralmente** a validação já existente (mesma prova de vida + anti-spoofing). O registro só acontece se a validação completa passar — ninguém bate o ponto por outro. É um exemplo de como plugar o motor de verificação em um caso de uso real.
-
-- Os modelos ONNX (~180 MB) são baixados automaticamente **uma única vez** no primeiro start do backend, para a pasta `backend/models/`. Depois disso o sistema funciona offline.
-- Backend: Java 21 + Spring Boot 3.5 (JWT, JPA/H2). Frontend: React 18 + Vite, responsivo (webcam no desktop, câmera frontal no celular), com **tema claro/escuro** (respeita a preferência do sistema e permite alternar).
-- Identidade visual: o ícone é um **elmo coríntio** (capacete do herói grego que dá nome ao sistema). As artes-fonte ficam em `frontend/assets/`; os ícones do Android são gerados com `npx @capacitor/assets generate --android`.
-
-## Rodando em desenvolvimento
-
-Para desenvolvimento sem Docker (requer **JDK 21** e **Node.js 18+**):
-
-### Backend
+Requisitos: Git e Docker com Compose. Na primeira inicialização, o backend baixa os modelos ONNX; aguarde o log `Engine de reconhecimento facial pronta`. O tamanho e o tempo do download dependem dos artefatos e da conexão.
 
 ```bash
-cd backend
-./mvnw spring-boot:run          # Linux/macOS/Git Bash
-mvnw.cmd spring-boot:run        # Windows (cmd/PowerShell)
+git clone https://github.com/JonnasFigueiredo/Ulisses.git
+cd Ulisses
+cp .env.example .env
 ```
 
-Sobe em `http://localhost:8080`. No primeiro start, aguarde o log `Engine de reconhecimento facial pronta`.
-
-### Frontend
+No PowerShell, use `Copy-Item .env.example .env`. **Se já existe um `.env`, preserve-o.** Preencha `ULISSES_JWT_SECRET` e `ULISSES_CRYPTO_KEY` com dois segredos independentes. Para gerar cada valor:
 
 ```bash
-cd frontend
-npm install
+openssl rand -hex 32
+```
+
+Alternativa no PowerShell, executada uma vez para cada segredo:
+
+```powershell
+$bytes = New-Object byte[] 32
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes)
+$rng.Dispose()
+[BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant()
+```
+
+Cole os valores somente no `.env`, que está ignorado pelo Git. Então:
+
+```bash
+docker compose up --build -d
+docker compose logs -f backend
+```
+
+Abra **http://localhost:5173**. As portas são publicadas apenas em `127.0.0.1` por padrão. O Compose exige os segredos, e o backend rejeita valores vazios, curtos ou exemplos conhecidos no perfil `prod`.
+
+**Se há templates cadastrados, não substitua a chave de criptografia sem planejar uma migração:** os dados existentes dependem da chave anterior. Remover um valor de exemplo da configuração não recriptografa os dados antigos.
+
+Os scripts `run.cmd` e `bash run.sh` oferecem `docker`, `dev`, `build`, `logs` e `stop`. Configure o `.env` antes do modo Docker. A abertura automática do navegador não significa que os modelos já terminaram de carregar.
+
+## Desenvolvimento
+
+Use **JDK 21** e **Node.js 22+**; `.nvmrc` indica a versão usada no CI. Confira também `JAVA_HOME`. O Capacitor 8 requer Node 22 ou superior ([requisitos oficiais](https://capacitorjs.com/docs/updating/8-0)).
+
+Backend, dentro de `backend/`:
+
+```bash
+sh mvnw spring-boot:run
+# PowerShell: .\mvnw.cmd spring-boot:run
+```
+
+Frontend, em outro terminal, dentro de `frontend/`:
+
+```bash
+npm ci
 npm run dev
 ```
 
-Sobe em `https://localhost:5173` (HTTPS com certificado autoassinado — aceite o aviso do navegador). As chamadas `/api` são proxeadas para o backend automaticamente.
+Frontend em **http://localhost:5173**, API em **http://localhost:8080**. O Vite encaminha `/api` ao backend. Para acessar pelo navegador do celular na rede local, use `npm run dev:mobile`, que habilita HTTPS com certificado de desenvolvimento.
 
-### Usando no celular (navegador)
+O `.env` da raiz é lido pelo **Docker Compose**. Na execução nativa, exporte as variáveis no terminal; o Spring Boot não carrega esse arquivo automaticamente. Sem `prod`, o ambiente permite configurações de desenvolvimento, inclusive console H2 e templates sem criptografia quando nenhuma chave é fornecida. Mantenha esse modo restrito ao ambiente local.
 
-1. Rode o frontend com `npm run dev:mobile` (HTTPS com certificado autoassinado).
-2. Conecte o celular na mesma rede Wi-Fi do computador.
-3. O Vite exibe no terminal o endereço de rede (ex.: `https://192.168.0.10:5173`) — abra-o no navegador do celular e aceite o certificado. O HTTPS é obrigatório: navegadores só liberam a câmera em contexto seguro.
+## Arquitetura e decisões
 
-### Aplicativo Android (APK)
-
-O projeto inclui um app nativo via **Capacitor** em `frontend/android/`. Para gerar o APK:
-
-```bash
-cd frontend
-npm run build && npx cap sync android
-cd android && gradlew.bat assembleDebug
+```mermaid
+flowchart LR
+    W[React / Vite] -->|REST + JWT| API[Spring Boot]
+    M[Android / iOS via Capacitor] -->|REST + JWT| API
+    API --> AUTH[AuthService]
+    API --> FACE[FaceService]
+    API --> TIME[TimeClockService]
+    TIME --> FACE
+    FACE --> ENGINE[FaceEngine / ONNX Runtime]
+    ENGINE --> DET[SCRFD / alinhamento]
+    ENGINE --> EMB[ArcFace / embeddings]
+    ENGINE --> PAD[MiniFASNet / PAD]
+    AUTH --> DB[(H2 / JPA)]
+    FACE --> DB
+    TIME --> DB
 ```
 
-O APK sai em `frontend/android/app/build/outputs/apk/debug/app-debug.apk`. Instale no celular (transferindo o arquivo ou via `adb install`).
-
-**Para usar o app:**
-1. Deixe o backend rodando no computador (`mvnw spring-boot:run`).
-2. Descubra o IP do computador na rede (`ipconfig` → IPv4) e libere a porta 8080 no Firewall do Windows se necessário.
-3. No app, com o celular na mesma rede Wi-Fi, preencha o campo **Servidor Ulisses** na tela de login, ex.: `http://192.168.0.10:8080`.
-
-No app a câmera funciona sem HTTPS (o WebView do Capacitor roda em contexto seguro) e a permissão de câmera é pedida no primeiro uso.
-
-### Aplicativo iOS (iPhone/iPad)
-
-O projeto iOS (Capacitor, Swift Package Manager) fica em `frontend/ios/`. **O build exige macOS + Xcode** — não é possível compilar no Windows. Em um Mac:
-
-```bash
-cd frontend
-npm install && npm run build && npx cap sync ios
-npx cap open ios          # abre no Xcode; rode em um dispositivo/simulador
-```
-
-O `Info.plist` já está configurado com a permissão de câmera (`NSCameraUsageDescription`), o acesso à rede local (`NSLocalNetworkUsageDescription`, exigido pelo iOS 14+ para alcançar o servidor por IP) e a exceção de ATS para conectar ao servidor por `http://` na rede local. O fluxo do app é idêntico ao Android — inclusive o campo **Servidor Ulisses** na tela de login.
-
-> Sem um Mac à mão, o **CI (GitHub Actions)** já compila o app iOS num runner macOS a cada push (job _App iOS_), servindo como verificação de que o projeto compila. Para distribuir, é preciso conta de desenvolvedor Apple e assinatura.
-
-## Calibração e padrões globais
-
-O sistema segue os referenciais internacionais de biometria facial:
-
-- **Decisão 1:1 (FIDO Biometrics / NIST FRVT)** — a aceitação usa a **mediana** da similaridade de cosseno dos frames frontais contra os templates (mediana é robusta a frames atípicos). O limiar padrão `0.45` opera com taxa de falsa aceitação (FMR) na ordem de **1:100.000**, com folga sobre o requisito FIDO de 1:10.000. Pontos de operação: `0.38` conveniência (~1:1.000) · `0.42` equilibrado (~1:10.000, requisito FIDO) · `0.45` recomendado · `0.50` alta segurança. Os valores exatos de FMR variam com população e condições de captura.
-- **Qualidade de cadastro (ISO/IEC 19794-5)** — os frames frontais do cadastro exigem **distância interocular ≥ 60 px**, garantindo resolução suficiente do template; a interface orienta o usuário a se aproximar da câmera quando necessário.
-- **Prova de vida ativa (ISO/IEC 30107)** — desafio dinâmico de uso único sorteado pelo servidor; o **movimento é verificado como observado ao vivo** (a captura precisa partir do rosto centralizado e transitar até o desvio pedido — ver abaixo), com verificação de identidade contínua durante o movimento.
-
-## Modelo de ameaça e limites honestos da prova de vida
-
-O sistema foi endurecido a partir de uma **revisão adversarial** (o relatório e as correções estão no histórico de commits). O que a prova de vida ativa **garante** e o que **não** garante:
-
-**Defesas implementadas (server-side, não confiam no cliente):**
-- **Movimento observado ao vivo:** cada movimento do desafio precisa conter um frame com o rosto **centralizado** (neutro) *antes* de atingir o desvio pedido, com trajetória contínua. Isso derruba o ataque mais barato — **rotular fotos já viradas do alvo como "giro"** (uma foto estática nunca tem o frame neutro + a transição).
-- **Baseline validada no servidor:** a pose frontal de referência é checada como realmente frontal (yaw e pitch), então o atacante não pode enviesar o referencial.
-- **Desafio 2-de-4 direções distintas** (esquerda/direita/cima/baixo), uso único, expira em 2 min; **identidade por mediana** também durante o movimento; resolução mínima e nitidez exigidas; **rejeição de múltiplos rostos**; **rate limiting** em `verify`, `challenge` e `pose`; teto de frames por requisição.
-
-**Limite fundamental (seja honesto ao apresentar):** por ser uma arquitetura de **upload de frames** (o cliente envia imagens, não um stream ao vivo autenticado), um atacante que possua o **JWT do titular + um vídeo do titular executando os movimentos** ainda pode, teoricamente, recortar os trechos correspondentes ao desafio. Fechar isso de vez exige uma das duas coisas, que **não** são código de aplicação e estão documentadas como evolução:
-1. **Canal em tempo real** (WebRTC) com *nonce por frame* emitido pelo servidor no momento do desafio, atando cada frame àquela sessão;
-2. **PAD certificado ISO/IEC 30107-3** (laboratório iBeta), que detecta a textura de tela/replay independentemente do movimento.
-
-Além disso, o **cadastro (`enroll`) não exige prova de vida** — quem tem a sessão pode re-cadastrar a própria biometria; trate o cadastro como operação sensível com reautenticação forte em produção.
-
-## Prova de vida passiva (anti-spoofing) e calibração
-
-O sistema tem **duas camadas de liveness**: a ativa (giro de cabeça, já validada e determinística) e a passiva (anti-spoofing por textura, MiniFASNet). A passiva é uma aproximação séria do que se espera de um sistema antifraude, mas com uma ressalva honesta e importante:
-
-> ⚠️ **Isto NÃO é uma solução certificada ISO/IEC 30107-3.** A certificação é feita por laboratório acreditado (ex.: iBeta), com instrumentos de ataque padronizados, e não pode ser substituída por código. A camada passiva aqui **precisa ser calibrada e ter a eficácia validada contra um dataset real de ataques** antes de ser tratada como proteção confiável.
-
-### Harness de medição (ISO/IEC 30107-3)
-
-O projeto inclui um avaliador que calcula as métricas oficiais — **APCER** (ataques aceitos como reais), **BPCER** (reais rejeitados) e **ACER** (média) — varrendo limiares para encontrar o ponto ótimo. Monte um dataset rotulado:
-
-```
-dataset/
-  bonafide/   *.jpg   (rostos reais capturados ao vivo)
-  attack/     *.jpg   (fotos impressas, telas/replay, máscaras, etc.)
-```
-
-E rode:
-
-```bash
-cd backend
-mvnw test -Dtest=PadEvaluationTest -Dpad.dataset=/caminho/do/dataset -Dpad.models=./models
-```
-
-Ele imprime a tabela APCER/BPCER/ACER por limiar e sugere o melhor `threshold`. Ajuste então `ulisses.face.passive-liveness.threshold` (e, se necessário, `live-class-index`) conforme o resultado. **Enquanto não calibrado com dados reais, trate a camada passiva como "melhor esforço", não como garantia.**
-
-### Caminhos de evolução (análise honesta)
-
-O pipeline atual (SCRFD → Umeyama → ArcFace → cosseno) é o mesmo padrão dos melhores projetos
-abertos (CompreFace, immich); as evoluções relevantes não são trocas de código às cegas, e sim:
-
-- **Reconhecimento com licença comercial livre:** trocar o ArcFace `buffalo_l` (não-comercial) por
-  **AdaFace** (código MIT) é o caminho natural — a arquitetura já é plugável (URL do ONNX em
-  `application.yml`); a troca exige apenas ajustar a normalização de entrada e **validar com um
-  benchmark de pares** antes de adotar (nunca troque o modelo sem medir).
-- **PAD certificado:** para grau bancário, integrar um SDK de liveness certificado ISO 30107-3
-  (iBeta nível 1/2) no lugar/ao lado do MiniFASNet.
-- **Landmarks densos (piscar/expressão):** exigiria um modelo adicional de 68/106 pontos com
-  licença adequada; o ganho é incremental frente ao desafio de 4 direções + PAD.
-
-## Configuração
-
-Principais chaves em `backend/src/main/resources/application.yml`:
-
-| Chave | Padrão | Descrição |
+| Decisão | Benefício | Limite atual |
 |---|---|---|
-| `ulisses.face.match-threshold` | `0.45` | Limiar de decisão 1:1 (ver tabela de pontos de operação acima) |
-| `ulisses.face.min-detection-score` | `0.60` | Confiança mínima da detecção para aproveitar um frame |
-| `ulisses.face.min-face-size` | `80` | Tamanho mínimo do rosto em pixels |
-| `ulisses.face.min-enroll-interocular` | `60` | Distância interocular mínima (px) nos frames frontais do cadastro |
-| `ulisses.face.min-sharpness` | `40` | Nitidez mínima do rosto alinhado (variância do Laplaciano) |
-| `ulisses.face.passive-liveness.enabled` | `true` | Liga a camada de anti-spoofing por textura (MiniFASNet) |
-| `ulisses.face.passive-liveness.threshold` | `0.55` | Score mínimo de liveness passiva (calibre com o harness) |
-| `ulisses.face.passive-liveness.live-class-index` | `2` | Índice da classe "vivo" no softmax do modelo (calibre com o harness) |
-| `ulisses.jwt.secret` | dev | Segredo JWT — **defina `ULISSES_JWT_SECRET` em produção** |
-| `ulisses.crypto.key` | vazio | Chave AES-256-GCM dos templates — **defina `ULISSES_CRYPTO_KEY` em produção** |
-| `ulisses.cors.allowed-origins` | `*` | Origens do CORS — **restrinja via `ULISSES_CORS_ORIGINS` em produção** |
+| Monólito com módulos por domínio | Execução e navegação do código simples | `FaceService` concentra regras demais e deve ser dividido gradualmente |
+| Inferência no backend | Dispensa serviço externo de reconhecimento durante a operação | CPU, memória e concorrência precisam ser medidas |
+| H2 em arquivo | Instalação local simples | Persistência e migrações precisam evoluir para hospedagem duradoura |
+| Captura por frames | Compartilha o fluxo entre web e mobile | Não autentica a origem da câmera nem comprova captura ao vivo |
+| Desafios em memória | Implementação simples de uso único e expiração | Reinícios invalidam desafios; múltiplas réplicas exigem estado compartilhado |
 
-Console do H2 (apenas dev): `http://localhost:8080/h2-console` — JDBC `jdbc:h2:file:./data/ulisses`, usuário `sa`, senha vazia. **Desligado no perfil `prod`.**
+Os frames são enviados ao backend configurado. A inferência não usa uma API externa. Os modelos são baixados de terceiros na inicialização e reutilizados em disco; as imagens não são persistidas pelo fluxo de cadastro/verificação, mas os templates e históricos são.
 
-## Checklist de produção
+## Testes
 
-O padrão do repositório é voltado a desenvolvimento. Para produção, ative o perfil `prod`
-(`SPRING_PROFILES_ACTIVE=prod`) e defina as variáveis de ambiente — a aplicação **não sobe** sem elas:
+```bash
+# Dentro de backend/
+sh mvnw verify
+# Windows: .\mvnw.cmd verify
 
-| Item | Como |
+# Dentro de frontend/
+npm ci
+npm test
+npm run build
+npm audit
+```
+
+Os testes de serviço usam embeddings e poses controlados. Eles verificam regras e regressões, **não medem reconhecimento ou resistência a fraude no mundo real**. Os testes do frontend cobrem HTTP e lógica de captura com câmera simulada; não substituem testes em navegadores e dispositivos.
+
+O CI executa backend, frontend e builds de imagens e iOS. O projeto Android está no repositório, mas ainda não tem job de build no CI. Consulte no relatório os comandos efetivamente executados e as validações pendentes.
+
+## Modelos e calibração
+
+| Componente | Uso no projeto |
 |---|---|
-| Segredo JWT forte | `ULISSES_JWT_SECRET` (ex.: `openssl rand -hex 32`) |
-| Criptografia dos templates em repouso | `ULISSES_CRYPTO_KEY` — cifra AES-256-GCM (obrigatória no prod) |
-| CORS restrito | `ULISSES_CORS_ORIGINS` com as origens exatas do seu frontend/app |
-| Console H2 desligado | automático no perfil `prod` |
-| Licença dos modelos | resolver o uso comercial (ver abaixo) |
-| Prova de vida passiva | calibrar/validar com o harness antes de confiar como antifraude |
-| Banco | H2 embutido serve para começar; para escala, migre para Postgres + Flyway |
-| HTTPS | termine TLS num proxy reverso à frente do frontend/backend |
+| SCRFD / InsightFace `buffalo_l` | Localizar rosto e landmarks |
+| ArcFace / `w600k_r50` | Gerar embeddings de 512 dimensões |
+| MiniFASNet V2 + V1SE | Classificação passiva com dois recortes |
 
-O `docker-compose.yml` já sobe com o perfil `prod`; troque os valores de `.env` antes de expor.
+A configuração está em `backend/src/main/resources/application.yml`. Os limiares `match-threshold: 0.45` e `passive-liveness.threshold: 0.55` são **valores experimentais**. Não há resultado medido neste repositório que associe esses números a uma taxa de falsa aceitação ou a certificação FIDO/ISO.
 
-## Licenças dos componentes
+Para os modelos MiniFASNet configurados, a entrada é **BGR float32 em 0–255**, layout CHW, e a classe viva é **1**, conforme o [código de inferência do fornecedor](https://github.com/yakhyo/face-anti-spoofing/blob/main/onnx_inference.py). O índice pertence ao contrato do modelo; não deve ser escolhido para aumentar a taxa de aprovação.
 
-O **código deste repositório é [MIT](LICENSE)**. Os modelos de IA embutidos têm licenças próprias
-que o adotante precisa respeitar:
+O avaliador experimental `PadEvaluationTest` recebe `-Dpad.dataset=/caminho/dataset -Dpad.models=./models`, com imagens em `bonafide/` e `attack/`. Ele é ignorado quando não há dataset. Antes de usar suas métricas como evidência, trate os casos sem rosto, exija amostras em ambas as classes e separe calibração de validação, conforme a revisão técnica.
 
-| Componente | Licença | Uso comercial |
-|---|---|---|
-| Código do Ulisses (backend + frontend) | MIT | ✅ Livre |
-| Anti-spoofing **MiniFASNet** (Silent-Face) | Apache-2.0 | ✅ Livre |
-| Detecção **SCRFD** + Reconhecimento **ArcFace** (InsightFace `buffalo_l`) | Não-comercial (pesquisa) | ⚠️ **Requer licença** |
+## Limites de segurança
 
-> Os modelos `buffalo_l` (SCRFD + ArcFace) são liberados pela InsightFace **apenas para pesquisa/uso
-> não-comercial**. Para uso comercial, obtenha uma licença com a InsightFace
-> (`recognition-oss-pack@insightface.ai`) **ou** substitua por um modelo de detecção/reconhecimento
-> com licença compatível. A arquitetura é agnóstica ao modelo — basta apontar outro ONNX em
-> `application.yml`.
+- Não há certificação de PAD nem benchmark próprio de FMR/FNMR.
+- Sequências de frames podem ser fabricadas ou extraídas de vídeos; a validação das fases não prova a origem ao vivo.
+- O cadastro pode ser substituído pelo titular autenticado sem uma segunda autenticação forte.
+- Rate limiting, concorrência, retenção e proteção do cadastro público ainda precisam de reforço antes de uma demonstração aberta na internet.
+- JWT fica no `localStorage`; a configuração mobile permite HTTP para laboratório. Use HTTPS na publicação e revise o build mobile de distribuição.
+
+Veja os [bloqueadores para publicação e testes manuais](docs/TESTES_E_PUBLICACAO.md). O perfil `prod` reforça a configuração, mas não resolve todas essas limitações.
 
 ## API
 
-| Método | Rota | Descrição |
+| Método | Rota | Função |
 |---|---|---|
-| `POST` | `/api/auth/register` | Cria conta e retorna JWT |
-| `POST` | `/api/auth/login` | Login |
-| `GET` | `/api/face/status` | Situação da biometria do usuário |
-| `POST` | `/api/face/enroll` | Cadastro facial (multipart: `frames[]` + `phases[]`) |
-| `POST` | `/api/face/pose` | Checagem de pose em tempo real para guiar a captura (multipart: `frame`) |
-| `POST` | `/api/face/challenge` | Sorteia o desafio de prova de vida |
-| `POST` | `/api/face/verify` | Validação (multipart: `challengeId`, `frames[]`, `phases[]`) |
-| `DELETE` | `/api/face/enrollment` | Remove a biometria |
-| `GET` | `/api/face/history` | Últimas validações |
-| `POST` | `/api/timeclock/punch` | Bate ponto (reusa `verify`; registra só se a validação passar) |
-| `GET` | `/api/timeclock/today` | Próximo tipo (entrada/saída) e registros de hoje |
+| POST | `/api/auth/register` | Criar conta |
+| POST | `/api/auth/login` | Autenticar |
+| GET | `/api/auth/me` | Consultar sessão |
+| GET | `/api/face/status` | Estado dos modelos e do cadastro |
+| POST | `/api/face/enroll` | Cadastrar frames e fases |
+| POST | `/api/face/pose` | Orientar posicionamento |
+| POST | `/api/face/challenge` | Gerar desafio |
+| POST | `/api/face/verify` | Verificar frames, fases e desafio |
+| DELETE | `/api/face/enrollment` | Excluir templates |
+| GET | `/api/face/history` | Consultar últimas verificações |
+| POST | `/api/timeclock/punch` | Verificar rosto e registrar entrada/saída |
+| GET | `/api/timeclock/today` | Consultar registros do dia |
 
-## Licença
+As rotas de autenticação são públicas; as demais exigem `Authorization: Bearer <token>`. O formato multipart usa `frames`, `phases` e, na verificação, `challengeId`. A checagem de pose usa `frame`.
 
-Distribuído sob a licença [MIT](LICENSE).
+## Aplicativos mobile
+
+Depois de `npm ci` e `npm run build` em `frontend/`, execute `npx cap sync android` ou `npx cap sync ios`. Android pode ser aberto no Android Studio; para gerar o APK de desenvolvimento no Windows, execute `.\gradlew.bat assembleDebug` em `frontend/android/`.
+
+iOS exige macOS e Xcode compatível com Capacitor 8; use `npx cap open ios`. Build de simulador sem assinatura não valida câmera em dispositivo nem equivale a um aplicativo pronto para distribuição. No app, informe a URL do backend em **Servidor Ulisses**.
+
+## Licenças
+
+O código do Ulisses é [MIT](LICENSE). Isso não altera as licenças dos modelos. O [model zoo oficial do InsightFace](https://github.com/deepinsight/insightface/blob/master/python-package/docs/model_zoo.md) restringe os modelos pré-treinados a pesquisa não comercial; verifique autorização antes de adotar ou redistribuir os pesos. Trocar um ONNX exige compatibilidade de entrada/saída e nova validação, além de ajustar a URL.
+
+A implementação original [Silent-Face-Anti-Spoofing](https://github.com/minivision-ai/Silent-Face-Anti-Spoofing) e a exportação utilizada têm seus próprios avisos de licença. Preserve-os e revise os termos dos artefatos efetivamente distribuídos.

@@ -35,37 +35,63 @@ public record Detection(float score, float x1, float y1, float x2, float y2, flo
 	}
 
 	/**
-	 * Posicao horizontal relativa do nariz entre os olhos (0 = colado no olho mais a esquerda da
-	 * imagem, 1 = no olho mais a direita). ~0.5 com o rosto de frente; desvia conforme a cabeca gira.
-	 * Usado na prova de vida por desafio de movimento.
+	 * Sinal de YAW (giro horizontal), ~0 com o rosto de frente. Medido projetando o nariz sobre a
+	 * LINHA DOS OLHOS (eixo esquerda→direita) e normalizando pela distancia interocular. Como usa a
+	 * direcao real da linha dos olhos (nao o eixo X da imagem), e invariante a inclinacao da cabeca
+	 * (roll) e ao angulo da camera. Aumenta ao girar para um lado, diminui para o outro.
 	 */
 	public float noseRatio() {
-		float eyeLeftX = Math.min(kps[0], kps[2]);
-		float eyeRightX = Math.max(kps[0], kps[2]);
-		float span = eyeRightX - eyeLeftX;
-		if (span < 1e-3f) {
-			return 0.5f;
-		}
-		float ratio = (kps[4] - eyeLeftX) / span;
-		return Math.max(-1f, Math.min(2f, ratio));
+		return (float) facePose()[0];
 	}
 
 	/**
-	 * Posicao vertical relativa do nariz entre a linha dos olhos (0) e a linha da boca (1).
-	 * ~0.5 com o rosto neutro; inclinar a cabeca para CIMA projeta o nariz em direcao aos olhos
-	 * (ratio diminui) e para BAIXO em direcao a boca (ratio aumenta). Usado nos desafios verticais
-	 * da prova de vida — sempre comparado a linha de base do proprio usuario, o que neutraliza o
-	 * angulo da camera (webcam abaixo/acima do rosto).
+	 * Sinal de PITCH (inclinacao vertical), medido projetando o nariz sobre o eixo OLHOS→BOCA e
+	 * normalizando pela distancia olhos-boca (a "altura" propria do rosto). Tambem roll-corrigido.
+	 * Inclinar para cima aproxima o nariz da linha dos olhos (diminui); para baixo, da boca (aumenta).
 	 */
 	public float noseVerticalRatio() {
-		float eyeMidY = (kps[1] + kps[3]) / 2f;
-		float mouthMidY = (kps[7] + kps[9]) / 2f;
-		float span = mouthMidY - eyeMidY;
-		if (Math.abs(span) < 1e-3f) {
-			return 0.5f;
+		return (float) facePose()[1];
+	}
+
+	/**
+	 * Pose do rosto a partir das linhas dos landmarks: {yaw, pitch} normalizados, roll-corrigidos.
+	 * Constroi o referencial proprio do rosto (ex = linha dos olhos; ey = perpendicular apontando
+	 * para a boca) e projeta o nariz nele. Rotacionar todos os pontos (roll) preserva os produtos
+	 * escalares, entao yaw/pitch nao mudam — e isso que torna a medida robusta.
+	 */
+	private double[] facePose() {
+		double eLx = kps[0], eLy = kps[1], eRx = kps[2], eRy = kps[3];
+		double nx = kps[4], ny = kps[5];
+		double emx = (eLx + eRx) / 2.0, emy = (eLy + eRy) / 2.0; // meio dos olhos
+		double mmx = (kps[6] + kps[8]) / 2.0, mmy = (kps[7] + kps[9]) / 2.0; // meio da boca
+
+		double exx = eRx - eLx, exy = eRy - eLy; // direcao da linha dos olhos
+		double io = Math.hypot(exx, exy);
+		if (io < 1e-3) {
+			return new double[] {0.0, 0.5};
 		}
-		float ratio = (kps[5] - eyeMidY) / span;
-		return Math.max(-1f, Math.min(2f, ratio));
+		exx /= io;
+		exy /= io;
+		double eyx = -exy, eyy = exx; // perpendicular
+		if ((mmx - emx) * eyx + (mmy - emy) * eyy < 0) { // garante que aponta para a boca
+			eyx = -eyx;
+			eyy = -eyy;
+		}
+		double vx = nx - emx, vy = ny - emy;
+		double noseX = vx * exx + vy * exy; // nariz ao longo da linha dos olhos
+		double noseY = vx * eyx + vy * eyy; // nariz no eixo olhos→boca
+		double eyeMouth = (mmx - emx) * eyx + (mmy - emy) * eyy; // altura olhos-boca (roll-corrigida)
+
+		double yaw = noseX / io;
+		double pitch = Math.abs(eyeMouth) < 1e-3 ? 0.5 : noseY / eyeMouth;
+		return new double[] {
+			Math.max(-1.5, Math.min(1.5, yaw)), Math.max(-1.0, Math.min(2.0, pitch))
+		};
+	}
+
+	/** Angulo da linha dos olhos em relacao a horizontal (roll), em graus. */
+	public float roll() {
+		return (float) Math.toDegrees(Math.atan2(kps[3] - kps[1], kps[2] - kps[0]));
 	}
 
 	/** Distancia interocular em pixels — metrica de qualidade/resolucao do rosto (ISO/IEC 19794-5). */

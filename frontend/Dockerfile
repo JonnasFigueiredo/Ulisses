@@ -1,5 +1,5 @@
 # Build multi-stage: compila o React com Node, serve os estaticos com Nginx.
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci

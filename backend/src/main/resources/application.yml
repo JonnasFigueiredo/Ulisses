@@ -44,20 +44,22 @@ ulisses:
     models-dir: ./models
     detection-model-url: https://huggingface.co/immich-app/buffalo_l/resolve/main/detection/model.onnx
     recognition-model-url: https://huggingface.co/immich-app/buffalo_l/resolve/main/recognition/model.onnx
-    # Limiar de decisao 1:1 (similaridade de cosseno, ArcFace). Pontos de operacao tipicos:
-    #   0.38 = conveniencia (FMR ~1:1.000)  |  0.42 = equilibrado (~1:10.000, requisito FIDO)
-    #   0.45 = recomendado (~1:100.000, folga sobre o FIDO)  |  0.50 = alta seguranca
-    # Mesmo rosto em condicoes normais fica acima de 0.55; rostos diferentes abaixo de 0.30.
+    # Limiar experimental de similaridade de cosseno. Nao equivale a uma FMR conhecida.
+    # Calibre com pares genuinos/impostores e valide em um conjunto separado antes de adotar.
     match-threshold: 0.45
     min-detection-score: 0.60
     min-face-size: 80
-    # Qualidade da imagem de cadastro (ISO/IEC 19794-5): distancia interocular minima, em pixels,
-    # exigida nos frames frontais do cadastro. Garante template com resolucao suficiente.
+    # Heuristica de qualidade: distancia interocular minima, em pixels, no cadastro frontal.
+    # Este filtro isolado nao demonstra conformidade com uma norma de qualidade biometrica.
     min-enroll-interocular: 60
     # Nitidez minima do rosto alinhado (variancia do Laplaciano). Frames borrados por movimento
     # ou foco ruim sao descartados; rostos nitidos de webcam ficam bem acima de 100.
     min-sharpness: 40
     challenge-ttl-seconds: 120
+    # Inclui os desafios verticais (cima/baixo) no sorteio. O sinal de pitch agora e roll-corrigido
+    # e normalizado pela altura olhos-boca (bem mais estavel). Se no seu dispositivo o cima/baixo
+    # ficar dificil de confirmar, ajuste min-pitch-deviation ou volte para false (so esquerda/direita).
+    include-vertical-challenges: true
     # Liveness PASSIVA (anti-spoofing por textura) — ensemble MiniFASNet / Silent-Face (Apache-2.0).
     # Segunda camada alem da prova de vida ativa (giro de cabeca). Detecta foto/tela pela textura.
     # IMPORTANTE: threshold e live-class-index PRECISAM ser calibrados contra um dataset real de
@@ -66,7 +68,7 @@ ulisses:
       enabled: true
       model-v2-url: https://github.com/yakhyo/face-anti-spoofing/releases/download/weights/MiniFASNetV2.onnx
       model-v1se-url: https://github.com/yakhyo/face-anti-spoofing/releases/download/weights/MiniFASNetV1SE.onnx
-      # Indice da classe "vivo" no softmax de 3 posicoes (determinado empiricamente; calibre com o harness)
-      live-class-index: 2
+      # Contrato dos modelos MiniFASNet fornecidos por yakhyo: classe 1 = vivo; 0 e 2 = ataque.
+      live-class-index: 1
       # Score minimo de liveness passiva (mediana entre os frames frontais) para aceitar
       threshold: 0.55

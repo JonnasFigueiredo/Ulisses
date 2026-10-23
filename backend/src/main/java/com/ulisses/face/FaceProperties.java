@@ -13,6 +13,7 @@ public record FaceProperties(
 		int minEnrollInterocular,
 		double minSharpness,
 		long challengeTtlSeconds,
+		boolean includeVerticalChallenges,
 		PassiveLiveness passiveLiveness) {
 
 	/**

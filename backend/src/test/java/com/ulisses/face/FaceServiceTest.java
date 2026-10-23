@@ -73,8 +73,9 @@ class FaceServiceTest {
 				60, // minEnrollInterocular
 				40, // minSharpness
 				120, // challengeTtlSeconds
+				true, // includeVerticalChallenges (para exercitar o eixo vertical nos testes)
 				// liveness passiva desabilitada nos testes unitarios (engine mockado)
-				new FaceProperties.PassiveLiveness(false, null, null, 2, 0.55));
+				new FaceProperties.PassiveLiveness(false, null, null, 1, 0.55));
 		challengeService = new ChallengeService(props);
 		faceService = new FaceService(engine, props, templateRepo, attemptRepo, challengeService);
 
@@ -98,8 +99,9 @@ class FaceServiceTest {
 		when(engine.detectMainFace(any())).thenAnswer(inv -> java.util.Optional.of(detQueue.poll()));
 		when(engine.embedAligned(any())).thenAnswer(inv -> embQueue.poll());
 		lenient().when(engine.alignFace(any(), any())).thenAnswer(inv -> sharpAligned);
-		// Por padrao, um unico rosto no quadro (sem segunda pessoa).
-		lenient().when(engine.detect(any())).thenReturn(List.of());
+		// Por padrao, UM rosto no quadro (caso real). Antes era List.of() (vazio), o que mascarava
+		// o bug de deteccao de multiplos rostos; um unico rosto NAO pode ser tratado como dois.
+		lenient().when(engine.detect(any())).thenReturn(List.of(detection(0.5, 0.5, 100)));
 
 		jpegBytes = jpeg();
 		sharpAligned = checkerboard(); // nitidez alta -> passa no filtro de borrao
@@ -316,6 +318,64 @@ class FaceServiceTest {
 				() -> faceService.verify(user, "desafio-invalido", frames(0), phases()));
 		assertEquals(HttpStatus.TOO_MANY_REQUESTS, ex.getStatus());
 		assertTrue(ex.getMessage().contains("Muitas requisicoes"));
+	}
+
+	@Test
+	void enrollRejectsUnknownPhaseBeforeSavingTemplates() {
+		ApiException ex = assertThrows(
+				ApiException.class, () -> faceService.enroll(user, frames(1), List.of("EXTRA")));
+		assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
+		assertTrue(ex.getMessage().contains("Fase de captura invalida"));
+		assertTrue(templateStore.isEmpty());
+	}
+
+	@Test
+	void verifyRejectsReversedCapturePhases() {
+		enrollBaseline();
+		Challenge challenge = challengeService.create(1L);
+		ApiException ex = assertThrows(ApiException.class,
+				() -> verifyTrajectory(challenge, List.of(1, 0), 0, 0, 0.18, 0.18, 0.18));
+		assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
+		assertTrue(ex.getMessage().contains("ordem"));
+	}
+
+	@Test
+	void verifyRejectsNeutralOnlyAfterTheMovement() {
+		enrollBaseline();
+		Challenge challenge = challengeService.create(1L);
+		VerifyResult result = verifyTrajectory(challenge, List.of(0, 1), 0.18, 0.18, 0.18, 0, 0);
+		assertFalse(result.liveness());
+		assertFalse(result.success());
+	}
+
+	@Test
+	void verifyRejectsOppositePoseAsNeutral() {
+		enrollBaseline();
+		Challenge challenge = challengeService.create(1L);
+		VerifyResult result = verifyTrajectory(challenge, List.of(0, 1), -0.18, -0.18, 0.18, 0.18, 0.18);
+		assertFalse(result.liveness());
+		assertFalse(result.success());
+	}
+
+	private VerifyResult verifyTrajectory(Challenge challenge, List<Integer> segmentOrder, double... offsets) {
+		List<String> labels = new ArrayList<>(phases("STRAIGHT", 4));
+		enqueueFrames(0.5, 0.5, 4, FACE_A);
+		for (int index : segmentOrder) {
+			Direction direction = challenge.sequence().get(index);
+			for (double offset : offsets) {
+				double horizontal = 0.5;
+				double vertical = 0.5;
+				switch (direction) {
+					case LEFT -> horizontal += offset;
+					case RIGHT -> horizontal -= offset;
+					case UP -> vertical -= offset;
+					case DOWN -> vertical += offset;
+				}
+				enqueueFrames(horizontal, vertical, 1, FACE_A);
+				labels.add("TURN" + (index + 1));
+			}
+		}
+		return faceService.verify(user, challenge.id(), frames(labels.size()), labels);
 	}
 
 	// ---------- helpers ----------

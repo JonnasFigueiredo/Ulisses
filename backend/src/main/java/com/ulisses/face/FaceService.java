@@ -13,7 +13,6 @@ import com.ulisses.face.engine.Detection;
 import com.ulisses.face.engine.FaceEmbedder;
 import com.ulisses.face.engine.FaceEngine;
 import java.awt.image.BufferedImage;
-import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -22,7 +21,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import javax.imageio.ImageIO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -45,13 +43,20 @@ public class FaceService {
 	private static final double MIN_ENROLL_CONSISTENCY = 0.45;
 	/** Frames frontais validos minimos para uma validacao. */
 	private static final int MIN_VERIFY_STRAIGHT_FRAMES = 3;
-	/** Faixa (yaw e pitch) que um frame frontal legitimo precisa respeitar. Valida a baseline no verify. */
-	private static final double FRONTAL_MIN = 0.36;
-	private static final double FRONTAL_MAX = 0.64;
+	/**
+	 * Frontalidade da baseline (verify): apenas um guarda amplo contra comecar a sessao muito
+	 * torto/inclinado — a seguranca real vem do MOVIMENTO relativo, nao destes valores absolutos.
+	 * Faixas largas porque a anatomia do rosto varia (posicao da ponta do nariz).
+	 */
+	private static final double YAW_FRONTAL_MAX = 0.24;
+	private static final double PITCH_FRONTAL_MIN = 0.15;
+	private static final double PITCH_FRONTAL_MAX = 0.95;
 	/** Interocular minima tambem no verify (nao so no cadastro): barra spoof de baixa resolucao/tela. */
 	private static final int MIN_VERIFY_INTEROCULAR = 45;
-	/** Desvio minimo do nariz (em fracao da distancia interocular) para aceitar o giro de cabeca. */
+	/** Desvio minimo do nariz para aceitar o GIRO horizontal (yaw). */
 	private static final double MIN_TURN_DEVIATION = 0.12;
+	/** Desvio minimo para a INCLINACAO vertical (pitch): sinal 2D mais fraco, limiar menor. */
+	private static final double MIN_PITCH_DEVIATION = 0.07;
 	/** Frames minimos (absolutos) que precisam atingir o desvio pedido na direcao sorteada. */
 	private static final int MIN_MOVED_FRAMES = 3;
 	/**
@@ -204,8 +209,8 @@ public class FaceService {
 		// um atacante nao pode enviesar a linha de base com frames "STRAIGHT" ja tortos.
 		double hBaseCheck = medianNoseRatio(straight);
 		double vBaseCheck = median(straight.stream().mapToDouble(ProcessedFrame::noseVertical).toArray());
-		if (hBaseCheck < FRONTAL_MIN || hBaseCheck > FRONTAL_MAX
-				|| vBaseCheck < FRONTAL_MIN || vBaseCheck > FRONTAL_MAX) {
+		if (Math.abs(hBaseCheck) > YAW_FRONTAL_MAX
+				|| vBaseCheck < PITCH_FRONTAL_MIN || vBaseCheck > PITCH_FRONTAL_MAX) {
 			throw ApiException.badRequest(
 					"Nao foi possivel estabelecer o rosto frontal. Olhe diretamente para a camera no inicio da validacao.");
 		}
@@ -289,7 +294,7 @@ public class FaceService {
 							+ "mantenha o giro ate a barra de progresso completar.");
 		}
 		double baseline = medianNoseRatio(straight);
-		if (baseline < 0.30 || baseline > 0.70) {
+		if (Math.abs(baseline) > YAW_FRONTAL_MAX) {
 			throw ApiException.badRequest(
 					"Na primeira etapa, olhe diretamente para a camera com o rosto centralizado e refaca o cadastro.");
 		}
@@ -336,7 +341,7 @@ public class FaceService {
 						round((d.x1() + d.x2()) / 2.0 / image.getWidth()),
 						round((d.y1() + d.y2()) / 2.0 / image.getHeight()),
 						round(d.height() / (double) image.getHeight()),
-						hasSecondFace(image, d)))
+						hasSecondFace(image)))
 				.orElse(new FaceDtos.PoseResponse(false, 0, 0, 0, false, 0, 0, 0, false));
 	}
 
@@ -353,6 +358,13 @@ public class FaceService {
 			case UP -> vBase - frame.noseVertical();
 			case DOWN -> frame.noseVertical() - vBase;
 		};
+	}
+
+	/** Desvio minimo exigido conforme o eixo (pitch e mais permissivo que yaw). */
+	private static double minDeviationFor(Direction direction) {
+		return (direction == Direction.UP || direction == Direction.DOWN)
+				? MIN_PITCH_DEVIATION
+				: MIN_TURN_DEVIATION;
 	}
 
 	/** Valor da pose no eixo relevante do desafio (para a analise de continuidade da trajetoria). */
@@ -383,15 +395,16 @@ public class FaceService {
 						false, "Movimento " + (i + 1) + " (" + directionLabel(direction) + ") nao detectado");
 			}
 
-			// Precisa ATINGIR o desvio pedido em frames suficientes...
-			double maxDeviation = Double.NEGATIVE_INFINITY;
-			double minDeviation = Double.POSITIVE_INFINITY;
+			// O neutro deve ser observado ANTES dos frames que atingem o desvio pedido.
+			double reach = minDeviationFor(direction);
+			boolean neutralObserved = false;
 			long moved = 0;
 			for (ProcessedFrame f : segment) {
 				double dev = axisDeviation(f, direction, hBaseline, vBaseline);
-				maxDeviation = Math.max(maxDeviation, dev);
-				minDeviation = Math.min(minDeviation, dev);
-				if (dev >= MIN_TURN_DEVIATION) {
+				if (Math.abs(dev) <= NEUTRAL_BAND) {
+					neutralObserved = true;
+				}
+				if (neutralObserved && dev >= reach) {
 					moved++;
 				}
 			}
@@ -399,17 +412,6 @@ public class FaceService {
 				return new LivenessCheck(
 						false,
 						"O movimento " + (i + 1) + " (" + directionLabel(direction) + ") nao foi confirmado");
-			}
-
-			// ...e o MOVIMENTO precisa ter sido OBSERVADO acontecendo: o segmento tem de conter um
-			// frame proximo do neutro (partiu do centro) alem dos frames no desvio. Uma foto ja
-			// virada tem todos os frames no mesmo desvio (minDeviation alto) e reprova aqui — este e
-			// o principal reforco contra "foto estatica rotulada como giro".
-			if (minDeviation > NEUTRAL_BAND) {
-				return new LivenessCheck(
-						false,
-						"Movimento nao observado ao vivo (" + directionLabel(direction)
-								+ "): comece com o rosto centralizado e mova durante a captura");
 			}
 
 			// Trajetoria continua no eixo do desafio: um movimento real nao "teleporta" — saltos
@@ -465,6 +467,8 @@ public class FaceService {
 		if (frames.size() > MAX_FRAMES_PER_REQUEST) {
 			throw ApiException.badRequest("Excesso de frames na requisicao");
 		}
+		List<String> normalizedPhases = validatePhaseOrder(
+				phases, computePassive ? List.of("STRAIGHT", "TURN1", "TURN2") : List.of("STRAIGHT", "LEFT", "RIGHT"));
 		boolean passive = computePassive && engine.isPassiveLivenessEnabled();
 		List<ProcessedFrame> processed = new ArrayList<>();
 		int multiFace = 0;
@@ -479,11 +483,11 @@ public class FaceService {
 				continue;
 			}
 			Detection detection = face.get();
-			if (hasSecondFace(image, detection)) {
+			if (hasSecondFace(image)) {
 				multiFace++;
 				continue;
 			}
-			String phase = phases.get(i).trim().toUpperCase(Locale.ROOT);
+			String phase = normalizedPhases.get(i);
 			if ("STRAIGHT".equals(phase) && detection.interocular() < minStraightInterocular) {
 				continue;
 			}
@@ -503,10 +507,39 @@ public class FaceService {
 		return new ProcessResult(processed, multiFace, blurry);
 	}
 
-	private boolean hasSecondFace(BufferedImage image, Detection main) {
-		return engine.detect(image).stream()
-				.filter(d -> d != main && d.score() >= properties.minDetectionScore())
-				.anyMatch(d -> d.area() >= main.area() * SECOND_FACE_AREA_RATIO);
+	/** Valida todos os rotulos antes de decodificar imagens, inclusive os de frames descartados. */
+	private static List<String> validatePhaseOrder(List<String> phases, List<String> allowedOrder) {
+		List<String> normalized = new ArrayList<>(phases.size());
+		int previousPhase = -1;
+		for (String value : phases) {
+			String phase = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+			int currentPhase = allowedOrder.indexOf(phase);
+			if (currentPhase < 0) {
+				throw ApiException.badRequest("Fase de captura invalida: use " + String.join(", ", allowedOrder));
+			}
+			if (currentPhase < previousPhase) {
+				throw ApiException.badRequest("As fases de captura devem seguir a ordem " + String.join(", ", allowedOrder));
+			}
+			previousPhase = currentPhase;
+			normalized.add(phase);
+		}
+		return normalized;
+	}
+
+	/**
+	 * Ha uma segunda pessoa no quadro? Detecta uma unica vez, ordena por area e compara o SEGUNDO
+	 * maior rosto ao principal. Nao usa igualdade de referencia (o bug anterior comparava objetos
+	 * de chamadas diferentes de detect(), o que fazia qualquer rosto sozinho ser tratado como dois).
+	 */
+	private boolean hasSecondFace(BufferedImage image) {
+		double[] areas = engine.detect(image).stream()
+				.filter(d -> d.score() >= properties.minDetectionScore())
+				.mapToDouble(Detection::area)
+				.boxed()
+				.sorted(java.util.Comparator.reverseOrder())
+				.mapToDouble(Double::doubleValue)
+				.toArray();
+		return areas.length >= 2 && areas[1] >= areas[0] * SECOND_FACE_AREA_RATIO;
 	}
 
 	/** Mensagem de erro explicando o principal motivo de descarte dos frames. */
@@ -578,21 +611,7 @@ public class FaceService {
 	}
 
 	private BufferedImage decode(MultipartFile file) {
-		try {
-			BufferedImage image = ImageIO.read(file.getInputStream());
-			if (image == null) {
-				return null;
-			}
-			if (image.getType() == BufferedImage.TYPE_INT_RGB) {
-				return image;
-			}
-			BufferedImage rgb =
-					new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
-			rgb.getGraphics().drawImage(image, 0, 0, null);
-			return rgb;
-		} catch (IOException e) {
-			return null;
-		}
+		return FrameDecoder.decode(file);
 	}
 
 	private static double bestSimilarity(float[] embedding, List<float[]> templates) {

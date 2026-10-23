@@ -73,7 +73,7 @@ class PadEvaluationTest {
 						env,
 						Path.of(modelsPath, "minifasnet_v2.onnx"),
 						Path.of(modelsPath, "minifasnet_v1se.onnx"),
-						Integer.getInteger("pad.liveIndex", 2))) {
+						Integer.getInteger("pad.liveIndex", 1))) {
 
 			double[] bonafide = scoreAll(detector, pad, bonafideDir);
 			double[] attack = scoreAll(detector, pad, attackDir);

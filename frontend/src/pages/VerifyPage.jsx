@@ -44,10 +44,9 @@ export default function VerifyPage() {
             <h2>Validacao com prova de vida</h2>
             <p className="muted">
               Alem de comparar seu rosto com a biometria cadastrada, o sistema sorteia uma sequencia de
-              DOIS movimentos de cabeca entre QUATRO direcoes (esquerda, direita, cima e baixo) que
-              devem ser executados ao vivo, na ordem — fotos e videos gravados nao passam. Cada
-              movimento e verificado em tempo real: a barra so avanca quando voce move o rosto de
-              verdade.
+              dois movimentos de cabeca para voce executar na ordem indicada. A barra acompanha
+              a pose detectada durante a captura. Esta demonstracao experimental ainda nao possui
+              eficacia validada contra fotos ou videos gravados.
             </p>
             <button
               type="button"

@@ -120,16 +120,20 @@ public final class PassiveLivenessDetector implements AutoCloseable {
 		return out;
 	}
 
-	/** Normalizacao do Silent-Face: canais BGR divididos por 255, layout CHW. */
-	private static float[] toBgrBlob(BufferedImage image) {
+	/**
+	 * Contrato dos modelos ONNX de yakhyo/face-anti-spoofing: BGR float32 em [0,255], CHW.
+	 * O export nao incorpora uma divisao por 255; normalizar para [0,1] muda a entrada treinada.
+	 * @see <a href="https://github.com/yakhyo/face-anti-spoofing/blob/main/onnx_inference.py">Referencia ONNX</a>
+	 */
+	static float[] toBgrBlob(BufferedImage image) {
 		int area = SIZE * SIZE;
 		int[] pixels = image.getRGB(0, 0, SIZE, SIZE, null, 0, SIZE);
 		float[] blob = new float[3 * area];
 		for (int i = 0; i < area; i++) {
 			int p = pixels[i];
-			blob[i] = (p & 0xFF) / 255f; // B
-			blob[area + i] = ((p >> 8) & 0xFF) / 255f; // G
-			blob[2 * area + i] = ((p >> 16) & 0xFF) / 255f; // R
+			blob[i] = p & 0xFF; // B
+			blob[area + i] = (p >> 8) & 0xFF; // G
+			blob[2 * area + i] = (p >> 16) & 0xFF; // R
 		}
 		return blob;
 	}
